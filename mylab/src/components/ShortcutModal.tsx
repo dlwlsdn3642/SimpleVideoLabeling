@@ -27,13 +27,12 @@ const ShortcutModal: React.FC<Props> = ({
                 <td style={{ padding: "6px 4px" }}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input
-                      value={key}
-                      onChange={e => setKeymap(m => ({ ...m, [action]: e.target.value }))}
-                      style={{ flex: 1 }}
+                      value={recordingAction === action ? "Press any key…" : key}
+                      readOnly
+                      onClick={() => setRecordingAction(action)}
+                      style={{ flex: 1, cursor: "pointer" }}
                     />
-                    <button onClick={() => setRecordingAction(action)}>
-                      {recordingAction === action ? "Recording…" : "Record"}
-                    </button>
+                    <button onClick={() => setKeymap(m => ({ ...m, [action]: "" }))}>Clear</button>
                   </div>
                 </td>
               </tr>
@@ -41,13 +40,13 @@ const ShortcutModal: React.FC<Props> = ({
           </tbody>
         </table>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
-          <button onClick={() => setKeymap(() => ({
+          <button onClick={() => { setRecordingAction(null); setKeymap(() => ({
             "frame_prev": "ArrowLeft",
             "frame_next": "ArrowRight",
-            "frame_prev10": "a",
-            "frame_next10": "d",
-            "frame_prev100": "s",
-            "frame_next100": "w",
+            "frame_prev10": "Shift+ArrowLeft",
+            "frame_next10": "Shift+ArrowRight",
+            "frame_prev100": "Ctrl+ArrowLeft",
+            "frame_next100": "Ctrl+ArrowRight",
             "toggle_play": "Space",
             "kf_add": "k",
             "kf_del": "Shift+k",
@@ -57,16 +56,16 @@ const ShortcutModal: React.FC<Props> = ({
             "toggle_presence": "n",
             "copy_tracks": "Ctrl+c",
             "paste_tracks": "Ctrl+v"
-          }))}>Reset</button>
+          })); }}>Reset</button>
           <button
-            onClick={() => { localStorage.setItem(`${indexUrl}::keymap_v2`, JSON.stringify(keymap)); onClose(); }}
+            onClick={() => { localStorage.setItem(`${indexUrl}::keymap_v2`, JSON.stringify(keymap)); setRecordingAction(null); onClose(); }}
           >
             Save
           </button>
-          <button onClick={onClose}>Close</button>
+          <button onClick={() => { setRecordingAction(null); onClose(); }}>Close</button>
         </div>
         <div style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
-          예: <code>ArrowLeft</code>, <code>a</code>, <code>Shift+k</code>, <code>Ctrl+Alt+.</code>, <code>Space</code>
+          예: <code>ArrowLeft</code>, <code>Shift+ArrowLeft</code>, <code>Shift+k</code>, <code>Ctrl+Alt+.</code>, <code>Space</code>
         </div>
       </div>
     </div>
