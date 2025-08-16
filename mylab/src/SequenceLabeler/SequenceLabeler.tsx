@@ -52,6 +52,23 @@ const SequenceLabeler: React.FC<{
   const [dragHandle, setDragHandle] = useState<Handle>("none");
   const [hoverHandle, setHoverHandle] = useState<Handle>("none");
   const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean }>({ mx: 0, my: 0 });
+  const [draftRect, setDraftRect] = useState<RectPX | null>(null);
+
+  const cursorFor = (h: Handle, dragging = false): string => {
+    if (dragging && h === "move") return "grabbing";
+    switch (h) {
+      case "move": return "grab";
+      case "n":
+      case "s": return "ns-resize";
+      case "e":
+      case "w": return "ew-resize";
+      case "ne":
+      case "sw": return "nesw-resize";
+      case "nw":
+      case "se": return "nwse-resize";
+      default: return "crosshair";
+    }
+  };
 
   const cursorFor = (h: Handle, dragging = false): string => {
     if (dragging && h === "move") return "grabbing";
@@ -268,9 +285,27 @@ const SequenceLabeler: React.FC<{
         ctx.fillStyle = "#fff"; ctx.fillText(tag, x + 4, y - 5);
         ctx.restore();
       }
+      if (dragRef.current.creating && draftRect) {
+        const x = draftRect.x * scale, y = draftRect.y * scale,
+          w = draftRect.w * scale, h = draftRect.h * scale;
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "#fff";
+        ctx.strokeRect(x, y, w, h);
+        const label = `${Math.round(draftRect.w)}×${Math.round(draftRect.h)}`;
+        ctx.font = "12px monospace";
+        const tw = ctx.measureText(label).width + 6;
+        const th = 16;
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(x + w - tw, y + h + 4, tw, th);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(label, x + w - tw + 3, y + h + 16);
+        ctx.restore();
+      }
     })();
     return () => { cancelled = true; };
-  }, [frame, tracks, selectedIds, labelSet.classes, interpolate, ghostAlpha, meta, getImage, scale]);
+  }, [frame, tracks, selectedIds, labelSet.classes, interpolate, ghostAlpha, meta, getImage, scale, draftRect]);
 
   /** ===== Keyboard ===== */
   useEffect(() => {
@@ -390,6 +425,7 @@ const SequenceLabeler: React.FC<{
       // 새 트랙 생성 드래그 시작
       const temp: RectPX = { x: mx, y: my, w: 1, h: 1 };
       dragRef.current = { mx, my, creating: true, tempRect: temp, multi: false };
+      setDraftRect(temp);
       setDragHandle("se");
     }
   };
@@ -415,7 +451,9 @@ const SequenceLabeler: React.FC<{
       let nx = Math.min(x1, x2), ny = Math.min(y1, y2);
       let nw = Math.max(2, Math.abs(x2 - x1)), nh = Math.max(2, Math.abs(y2 - y1));
       nx = clamp(nx, 0, meta.width - nw); ny = clamp(ny, 0, meta.height - nh);
-      dragRef.current.tempRect = { x: nx, y: ny, w: nw, h: nh };
+      const nr = { x: nx, y: ny, w: nw, h: nh };
+      dragRef.current.tempRect = nr;
+      setDraftRect(nr);
       return;
     }
 
@@ -489,6 +527,7 @@ const SequenceLabeler: React.FC<{
     }
     setDragHandle("none");
     setHoverHandle("none");
+    setDraftRect(null);
     dragRef.current = { mx: 0, my: 0 };
   };
 
