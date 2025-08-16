@@ -1,4 +1,4 @@
-# tracker_wrapper.py
+# transt_wrapper.py: Wrapper and session service for the Transt tracker
 import base64
 import threading
 import time
