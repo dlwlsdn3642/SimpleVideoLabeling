@@ -14,7 +14,11 @@ export function rectFromKF(kf: Keyframe): RectPX {
 export function findKFIndexAtOrBefore(kfs: Keyframe[], f: number): number {
   let lo = 0, hi = kfs.length - 1, ans = -1;
   while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
+    // Use Math.floor instead of bitwise shift to avoid 32-bit overflow
+    // when dealing with large indices. Bitwise operators convert numbers
+    // to signed 32-bit integers, which could yield incorrect midpoints
+    // for arrays longer than 2^31 entries.
+    const mid = Math.floor((lo + hi) / 2);
     if (kfs[mid].frame <= f) { ans = mid; lo = mid + 1; } else hi = mid - 1;
   }
   return ans;
