@@ -34,6 +34,8 @@ const SequenceLabeler: React.FC<{
   const [scale, setScale] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  const [scaleMax, setScaleMax] = useState(3);
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -143,9 +145,10 @@ const SequenceLabeler: React.FC<{
         setFiles(Array.from({ length: m.count }, (_, i) => `frame_${pad(i, padW)}.${ext}`));
       }
       setTimeout(() => {
-        if (!containerRef.current || !m) return;
-        const cw = containerRef.current.clientWidth;
-        setScale(Math.min(1, cw / m.width));
+        if (!canvasWrapRef.current || !m) return;
+        const { width } = canvasWrapRef.current.getBoundingClientRect();
+        const max = width / m.width;
+        setScale(Math.min(1, max));
       }, 0);
     })().catch(console.error);
     return () => { aborted = true; };
@@ -177,6 +180,22 @@ const SequenceLabeler: React.FC<{
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // observe canvas container size to enforce scale limits
+  useEffect(() => {
+    if (!meta || !canvasWrapRef.current) return;
+    const el = canvasWrapRef.current;
+    const update = () => {
+      const { width, height } = el.getBoundingClientRect();
+      const max = Math.max(0.1, Math.min(3, width / meta.width, height / meta.height));
+      setScaleMax(max);
+      setScale(s => Math.min(s, max));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [meta]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(async (idx: number): Promise<ImageBitmap | null> => {
@@ -665,9 +684,10 @@ const SequenceLabeler: React.FC<{
     cacheRef.current.clear();
     setFrame(0);
     setTimeout(() => {
-      if (!containerRef.current) return;
-      const cw = containerRef.current.clientWidth;
-      setScale(Math.min(1, cw / m.width));
+      if (!canvasWrapRef.current) return;
+      const { width } = canvasWrapRef.current.getBoundingClientRect();
+      const max = width / m.width;
+      setScale(Math.min(1, max));
     }, 0);
   }
 
@@ -697,7 +717,7 @@ const SequenceLabeler: React.FC<{
         <span style={{ opacity: 0.85 }}>Frame {frame + 1}/{totalFrames || "—"}</span>
 
         <span style={{ marginLeft: 16 }}>
-          Scale: <input type="range" min={0.1} max={3} step={0.05} value={scale} onChange={e => setScale(parseFloat(e.target.value))} />
+          Scale: <input type="range" min={0.1} max={scaleMax} step={0.05} value={scale} onChange={e => setScale(Math.min(parseFloat(e.target.value), scaleMax))} />
           <span style={{ marginLeft: 6 }}>{(scale * 100).toFixed(0)}%</span>
         </span>
 
@@ -787,7 +807,7 @@ const SequenceLabeler: React.FC<{
 
         {/* Canvas + Timeline */}
         <div style={{ display: "grid", gridTemplateRows: "1fr auto", background: "#111", minWidth: 0 }}>
-          <div style={{ display: "grid", placeItems: "center" }}>
+          <div ref={canvasWrapRef} style={{ display: "grid", placeItems: "center" }}>
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
