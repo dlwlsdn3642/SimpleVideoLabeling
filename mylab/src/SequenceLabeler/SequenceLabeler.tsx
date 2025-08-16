@@ -649,9 +649,9 @@ const SequenceLabeler: React.FC<{
       </div>
 
       {/* Middle: Left panel + Canvas */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 36vw) 1fr", minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 25vw) 1fr", minHeight: 0 }}>
         {/* Left panel */}
-        <div style={{ borderRight: "1px solid #222", padding: 8, overflow: "auto", minWidth: 300 }}>
+        <div style={{ borderRight: "1px solid #222", padding: 8, overflow: "auto", minWidth: 240 }}>
           {/* Label set */}
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Label Set</div>
