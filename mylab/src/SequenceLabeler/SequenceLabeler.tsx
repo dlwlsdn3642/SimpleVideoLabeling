@@ -50,7 +50,24 @@ const SequenceLabeler: React.FC<{
 
   // editing
   const [dragHandle, setDragHandle] = useState<Handle>("none");
+  const [hoverHandle, setHoverHandle] = useState<Handle>("none");
   const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean }>({ mx: 0, my: 0 });
+
+  const cursorFor = (h: Handle, dragging = false): string => {
+    if (dragging && h === "move") return "grabbing";
+    switch (h) {
+      case "move": return "grab";
+      case "n":
+      case "s": return "ns-resize";
+      case "e":
+      case "w": return "ew-resize";
+      case "ne":
+      case "sw": return "nesw-resize";
+      case "nw":
+      case "se": return "nwse-resize";
+      default: return "crosshair";
+    }
+  };
 
   // keymap
   const DEFAULT_KEYMAP: KeyMap = {
@@ -379,14 +396,22 @@ const SequenceLabeler: React.FC<{
 
   const onMouseMove = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     if (!meta) return;
-    if (dragHandle === "none") return;
     const { mx, my } = toImgCoords(ev);
+    if (dragHandle === "none") {
+      let h: Handle = "none";
+      for (let i = tracks.length - 1; i >= 0; i--) {
+        const t = tracks[i]; if (t.hidden) continue;
+        const r = rectAtFrame(t, frame, interpolate); if (!r) continue;
+        h = handleAt(r, mx, my); if (h !== "none") break;
+      }
+      setHoverHandle(h);
+      return;
+    }
     const dx = mx - dragRef.current.mx, dy = my - dragRef.current.my;
 
     // 새 트랙 드래그 중
     if (dragRef.current.creating && dragRef.current.tempRect) {
-      const o = dragRef.current.tempRect;
-      let x1 = o.x, y1 = o.y, x2 = o.x + o.w + dx, y2 = o.y + o.h + dy;
+      let x1 = dragRef.current.mx, y1 = dragRef.current.my, x2 = mx, y2 = my;
       let nx = Math.min(x1, x2), ny = Math.min(y1, y2);
       let nw = Math.max(2, Math.abs(x2 - x1)), nh = Math.max(2, Math.abs(y2 - y1));
       nx = clamp(nx, 0, meta.width - nw); ny = clamp(ny, 0, meta.height - nh);
@@ -462,6 +487,7 @@ const SequenceLabeler: React.FC<{
       setSelectedIds(new Set([t.track_id]));
     }
     setDragHandle("none");
+    setHoverHandle("none");
     dragRef.current = { mx: 0, my: 0 };
   };
 
@@ -728,7 +754,7 @@ const SequenceLabeler: React.FC<{
             ) : (
               <canvas
                 ref={canvasRef}
-                style={{ border: "1px solid #333", imageRendering: "pixelated", cursor: dragHandle === "none" ? "crosshair" : "grabbing" }}
+                style={{ border: "1px solid #333", imageRendering: "pixelated", cursor: cursorFor(dragHandle !== "none" ? dragHandle : hoverHandle, dragHandle !== "none") }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
                 onMouseUp={onMouseUp}
