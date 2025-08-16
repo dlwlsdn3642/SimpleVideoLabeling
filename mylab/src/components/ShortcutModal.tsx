@@ -1,6 +1,25 @@
 import React from "react";
 import type { KeyMap } from "../types";
 
+// 사용자가 보기 쉬운 이름으로 표시하기 위한 매핑
+const ACTION_LABELS: Record<string, string> = {
+  "frame_prev": "이전 프레임",
+  "frame_next": "다음 프레임",
+  "frame_prev10": "이전 10프레임",
+  "frame_next10": "다음 10프레임",
+  "frame_prev100": "이전 100프레임",
+  "frame_next100": "다음 100프레임",
+  "toggle_play": "재생/일시정지",
+  "kf_add": "키프레임 추가",
+  "kf_del": "키프레임 삭제",
+  "kf_prev": "이전 키프레임",
+  "kf_next": "다음 키프레임",
+  "toggle_interpolate": "보간 전환",
+  "toggle_presence": "존재 전환",
+  "copy_tracks": "트랙 복사",
+  "paste_tracks": "트랙 붙여넣기"
+};
+
 type Props = {
   open: boolean;
   keymap: KeyMap;
@@ -23,7 +42,7 @@ const ShortcutModal: React.FC<Props> = ({
           <tbody>
             {Object.entries(keymap).map(([action, key]) => (
               <tr key={action}>
-                <td style={{ padding: "6px 4px", width: 180 }}>{action}</td>
+                <td style={{ padding: "6px 4px", width: 180 }}>{ACTION_LABELS[action] ?? action}</td>
                 <td style={{ padding: "6px 4px" }}>
                   <div style={{ display: "flex", gap: 8 }}>
                     <input
