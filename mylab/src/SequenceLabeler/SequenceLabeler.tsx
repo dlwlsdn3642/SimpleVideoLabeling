@@ -420,7 +420,8 @@ const SequenceLabeler: React.FC<{
     }
 
     // 기존 편집: origRects가 없으면 안전하게 종료
-    if (!dragRef.current.origRects || dragRef.current.origRects.size === 0) return;
+    const { origRects, multi } = dragRef.current;
+    if (!origRects || origRects.size === 0) return;
 
     setTracks(ts => {
       const map = new Map(ts.map(t => [t.track_id, t]));
@@ -432,8 +433,8 @@ const SequenceLabeler: React.FC<{
       };
 
       // 다중 이동 (move만 허용)
-      if (dragRef.current.multi && dragHandle === "move") {
-        for (const [tid, orig] of dragRef.current.origRects.entries()) {
+      if (multi && dragHandle === "move") {
+        for (const [tid, orig] of origRects.entries()) {
           const rx = clamp(orig.x + dx, 0, meta.width - orig.w);
           const ry = clamp(orig.y + dy, 0, meta.height - orig.h);
           apply(tid, { x: rx, y: ry, w: orig.w, h: orig.h });
@@ -442,7 +443,7 @@ const SequenceLabeler: React.FC<{
       }
 
       // 단일 편집: 첫 엔트리 가져오기 (없으면 종료)
-      const firstEntry = dragRef.current.origRects.entries().next();
+      const firstEntry = origRects.entries().next();
       if (firstEntry.done) return ts;
       const [tid, orig] = firstEntry.value as [string, RectPX];
 
