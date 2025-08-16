@@ -1,12 +1,11 @@
-# server.py (수정된 FastAPI 서버)
 import uuid
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from tracker_wrapper import SERVICE, decode_image_from_b64
+from transt_wrapper import SERVICE, decode_image_from_b64
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="TransT Tracking Server", version="0.1.0")
+app = FastAPI(title="TransT Tracking Server")
 
 origins = [
     "http://localhost:8010",

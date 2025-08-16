@@ -38,7 +38,7 @@ class ModelManager:
         self.param_name = param_name
         self.TrackerCtor = Tracker
 
-        # 파라미터 모듈 로드 (여기서 1회만)
+        # 파라미터 모듈 로드
         param_module = import_module(f"pytracking.parameter.{tracker_name}.{param_name}")
         self.params = param_module.parameters()
         # 디바이스/옵션 명시
@@ -47,7 +47,6 @@ class ModelManager:
             self.params.device = self.device
 
     def new_internal_tracker(self):
-        """각 대상(target)마다 내부 트래커 인스턴스를 생성"""
         t = self.TrackerCtor(self.tracker_name, self.param_name)
         internal = t.create_tracker(self.params) if hasattr(t, "create_tracker") else t.tracker_class(self.params)
         # 학습 비활성화 모드
