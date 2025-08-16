@@ -53,23 +53,7 @@ const SequenceLabeler: React.FC<{
   const [hoverHandle, setHoverHandle] = useState<Handle>("none");
   const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean }>({ mx: 0, my: 0 });
   const [draftRect, setDraftRect] = useState<RectPX | null>(null);
-  const cursorFor = (h: Handle, dragging = false): string => {
-    if (dragging && h === "move") return "grabbing";
-    switch (h) {
-      case "move": return "grab";
-      case "n":
-      case "s": return "ns-resize";
-      case "e":
-      case "w": return "ew-resize";
-      case "ne":
-      case "sw": return "nesw-resize";
-      case "nw":
-      case "se": return "nwse-resize";
-      default: return "crosshair";
-    }
-  };
-
-  const cursorFor = (h: Handle, dragging = false): string => {
+  const handleCursor = (h: Handle, dragging = false): string => {
     if (dragging && h === "move") return "grabbing";
     switch (h) {
       case "move": return "grab";
