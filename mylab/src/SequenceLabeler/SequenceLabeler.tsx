@@ -53,7 +53,6 @@ const SequenceLabeler: React.FC<{
   const [hoverHandle, setHoverHandle] = useState<Handle>("none");
   const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean }>({ mx: 0, my: 0 });
   const [draftRect, setDraftRect] = useState<RectPX | null>(null);
-
   const cursorFor = (h: Handle, dragging = false): string => {
     if (dragging && h === "move") return "grabbing";
     switch (h) {
@@ -794,7 +793,7 @@ const SequenceLabeler: React.FC<{
             ) : (
               <canvas
                 ref={canvasRef}
-                style={{ border: "1px solid #333", imageRendering: "pixelated", cursor: cursorFor(dragHandle !== "none" ? dragHandle : hoverHandle, dragHandle !== "none") }}
+                style={{ border: "1px solid #333", imageRendering: "pixelated", cursor: handleCursor(dragHandle !== "none" ? dragHandle : hoverHandle, dragHandle !== "none") }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
                 onMouseUp={onMouseUp}
