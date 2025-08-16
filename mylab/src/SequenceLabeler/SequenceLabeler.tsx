@@ -491,7 +491,12 @@ const SequenceLabeler: React.FC<{
     if (!oneSelected) return;
     const kfs = oneSelected.keyframes;
     const idx = findKFIndexAtOrBefore(kfs, frame);
-    const next = (idx >= 0 && idx < kfs.length - 1) ? kfs[idx + 1].frame : kfs[kfs.length - 1].frame;
+    // If no keyframe exists at or before the current frame (idx === -1),
+    // jump to the first keyframe instead of wrapping to the last.
+    // Otherwise move to the next keyframe, or stay on the last one if already there.
+    const next = (idx === -1)
+      ? kfs[0].frame
+      : (idx < kfs.length - 1 ? kfs[idx + 1].frame : kfs[kfs.length - 1].frame);
     setFrame(next);
   }
   function togglePresenceAtCurrent() {
