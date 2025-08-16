@@ -53,8 +53,23 @@ const SequenceLabeler: React.FC<{
   const [hoverHandle, setHoverHandle] = useState<Handle>("none");
   const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean }>({ mx: 0, my: 0 });
   const [draftRect, setDraftRect] = useState<RectPX | null>(null);
+  const cursorFor = (h: Handle, dragging = false): string => {
+    if (dragging && h === "move") return "grabbing";
+    switch (h) {
+      case "move": return "grab";
+      case "n":
+      case "s": return "ns-resize";
+      case "e":
+      case "w": return "ew-resize";
+      case "ne":
+      case "sw": return "nesw-resize";
+      case "nw":
+      case "se": return "nwse-resize";
+      default: return "crosshair";
+    }
+  };
 
-  const handleCursor = (h: Handle, dragging = false): string => {
+  const cursorFor = (h: Handle, dragging = false): string => {
     if (dragging && h === "move") return "grabbing";
     switch (h) {
       case "move": return "grab";
@@ -74,10 +89,10 @@ const SequenceLabeler: React.FC<{
   const DEFAULT_KEYMAP: KeyMap = {
     "frame_prev": "ArrowLeft",
     "frame_next": "ArrowRight",
-    "frame_prev10": "a",
-    "frame_next10": "d",
-    "frame_prev100": "s",
-    "frame_next100": "w",
+    "frame_prev10": "Shift+ArrowLeft",
+    "frame_next10": "Shift+ArrowRight",
+    "frame_prev100": "Ctrl+ArrowLeft",
+    "frame_next100": "Ctrl+ArrowRight",
     "toggle_play": "Space",
     "kf_add": "k",
     "kf_del": "Shift+k",
@@ -800,7 +815,7 @@ const SequenceLabeler: React.FC<{
 
       {/* Bottom help */}
       <div style={{ padding: "6px 12px", borderTop: "1px solid #222", fontSize: 12, opacity: 0.85 }}>
-        Frames: ←/→ ±1, A/D ±10, W/S ±100, Space Play ·
+        Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
         KF: K add, Shift+K del, , prev, . next ·
         Presence: N toggle ·
         Multi-move: Alt+드래그 ·
@@ -816,7 +831,7 @@ const SequenceLabeler: React.FC<{
         indexUrl={indexUrl}
         recordingAction={recordingAction}
         setRecordingAction={setRecordingAction}
-        onClose={() => setKeyUIOpen(false)}
+        onClose={() => { setRecordingAction(null); setKeyUIOpen(false); }}
       />
     </div>
   );
