@@ -72,45 +72,67 @@ export default function App() {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex", position: "relative" }}>
-      {panelOpen && (
-        <div style={{ width: 250, borderRight: "1px solid #ccc", padding: 8, overflowY: "auto" }}>
-          <button onClick={handleCreateProject}>New Project</button>
-          <ul>
-            {projects.map(p => (
-              <li key={p.id}>
-                <button
-                  onClick={() => selectProject(p.id)}
-                  style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal" }}
-                >
-                  {p.name}
-                </button>
-                <button onClick={() => handleDeleteProject(p.id)} style={{ marginLeft: 4 }}>✕</button>
-              </li>
-            ))}
-          </ul>
-          {currentProject && (
-            <div>
-              <h4>Tasks</h4>
-              <button onClick={handleCreateTask}>New Task</button>
-              <ul>
-                {currentProject.tasks.map(t => (
-                  <li key={t.id}>
-                    <button
-                      onClick={() => selectTask(t)}
-                      style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal" }}
-                    >
-                      {t.name}
-                    </button>
-                    <button onClick={() => handleDeleteTask(currentProject.id, t.id)} style={{ marginLeft: 4 }}>✕</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-      <div style={{ flex: 1, marginLeft: panelOpen ? 0 : 32 }}>
+    <div style={{ height: "100vh", display: "flex" }}>
+      <div
+        style={{
+          width: panelOpen ? 250 : 32,
+          borderRight: "1px solid #ccc",
+          padding: 8,
+          overflowY: panelOpen ? "auto" : "hidden",
+          overflowX: "hidden",
+          position: "relative"
+        }}
+      >
+        <button
+          onClick={() => setPanelOpen(o => !o)}
+          style={{ position: "absolute", top: 8, right: 8 }}
+        >
+          {panelOpen ? "⮜" : "⮞"}
+        </button>
+        {panelOpen && (
+          <>
+            <button onClick={handleCreateProject}>New Project</button>
+            <ul>
+              {projects.map(p => (
+                <li key={p.id}>
+                  <button
+                    onClick={() => selectProject(p.id)}
+                    style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal" }}
+                  >
+                    {p.name}
+                  </button>
+                  <button onClick={() => handleDeleteProject(p.id)} style={{ marginLeft: 4 }}>✕</button>
+                </li>
+              ))}
+            </ul>
+            {currentProject && (
+              <div>
+                <h4>Tasks</h4>
+                <button onClick={handleCreateTask}>New Task</button>
+                <ul>
+                  {currentProject.tasks.map(t => (
+                    <li key={t.id}>
+                      <button
+                        onClick={() => selectTask(t)}
+                        style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal" }}
+                      >
+                        {t.name}
+                      </button>
+                        <button
+                          onClick={() => handleDeleteTask(currentProject.id, t.id)}
+                          style={{ marginLeft: 4 }}
+                        >
+                          ✕
+                        </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      <div style={{ flex: 1 }}>
         {currentTask ? (
           <SequenceLabeler
             framesBaseUrl={`${currentTask.workFolder}/frames`}
@@ -124,12 +146,6 @@ export default function App() {
           <div style={{ padding: 16 }}>Select a task.</div>
         )}
       </div>
-      <button
-        onClick={() => setPanelOpen(o => !o)}
-        style={{ position: "absolute", top: 8, left: panelOpen ? 258 : 8 }}
-      >
-        {panelOpen ? "⮜" : "⮞"}
-      </button>
     </div>
   );
 }
