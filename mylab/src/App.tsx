@@ -28,17 +28,24 @@ export default function App() {
     if (!name) return;
     const input = document.createElement("input");
     input.type = "file";
+    // allow directory selection in Chromium based browsers
     input.setAttribute("webkitdirectory", "true");
     input.onchange = () => {
       const files = input.files;
       if (!files || !files.length) return;
       const file = files[0] as File & { path?: string; webkitRelativePath?: string };
-      if (!file.path) return;
       const relPath = file.webkitRelativePath ?? "";
-      const folder = file.path
-        .slice(0, file.path.length - relPath.length)
-        .replace(/\\/g, "/")
-        .replace(/\/$/, "");
+      const fullPath = file.path ?? "";
+      let folder = "";
+      if (fullPath) {
+        // Browsers like Electron expose the absolute path via file.path
+        folder = fullPath.slice(0, fullPath.length - relPath.length)
+          .replace(/\\/g, "/")
+          .replace(/\/$/, "");
+      } else {
+        // Fallback: derive top-level folder from relative path so task can still be added
+        folder = relPath.split("/")[0] ?? "";
+      }
       const t = pm.current.addTask(currentProject.id, name, folder);
       refresh();
       setCurrentTask(t);
