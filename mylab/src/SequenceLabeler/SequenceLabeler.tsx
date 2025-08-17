@@ -131,7 +131,10 @@ const SequenceLabeler: React.FC<{
         try {
           m = JSON.parse(raw) as IndexMeta;
         } catch (err) {
-          console.error("index meta parse error", err);
+          console.error("index meta parse error", err, {
+            contentType: r.headers.get("content-type"),
+            bodyPreview: raw.slice(0, 200)
+          });
           return;
         }
         if (aborted) return;
