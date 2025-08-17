@@ -4,6 +4,7 @@ import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
 import { saveDirHandle } from "./utils/handles";
 import appStyles from "./App.module.css";
+import { ErrorBoundary } from "./components";
 
 export default function App() {
   const pm = useRef(new ProjectManager());
@@ -141,6 +142,7 @@ export default function App() {
         </div>
         <div className={appStyles.content}>
           {currentTask ? (
+            <ErrorBoundary>
             <SequenceLabeler
               framesBaseUrl={`${currentTask.workFolder}/frames`}
               indexUrl={`${currentTask.workFolder}/index.json`}
@@ -161,6 +163,7 @@ export default function App() {
                 refresh();
               }}
             />
+            </ErrorBoundary>
           ) : (
             <div style={{ padding: 16 }}>Select a task.</div>
           )}

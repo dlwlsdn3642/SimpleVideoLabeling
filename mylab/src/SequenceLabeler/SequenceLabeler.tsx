@@ -12,6 +12,7 @@ import { TrackPanel, ShortcutModal } from "../components";
 import styles from "./SequenceLabeler.module.css";
 import SLTopBar from "./SLTopBar";
 import SLTimelineSection from "./SLTimelineSection";
+import SLRightPanel from "./SLRightPanel";
 import type {
   IndexMeta,
   RectPX,
@@ -1245,213 +1246,25 @@ const SequenceLabeler: React.FC<{
         </div>
 
         {/* Right panel */}
-        <div className={styles.rightPanel}>
-          {/* View options */}
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={showGhosts}
-                onChange={(e) => setShowGhosts(e.target.checked)}
-              />
-              <span>Show ghosts (prev/next)</span>
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={interpolate}
-                onChange={(e) => setInterpolate(e.target.checked)}
-              />
-              <span>Interpolate</span>
-            </label>
-          </div>
-          {/* Label set */}
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Label Set</div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <select
-                value={labelSet.name}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  const raw = localStorage.getItem("sequence_label_sets_v1");
-                  if (!raw) return;
-                  try {
-                    const sets: LabelSet[] = JSON.parse(raw);
-                    const s = sets.find((x) => x.name === name);
-                    if (s)
-                      setLabelSet({
-                        name: s.name,
-                        classes: [...s.classes],
-                        colors:
-                          s.colors ??
-                          s.classes.map(
-                            (_: unknown, i: number) =>
-                              DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-                          ),
-                      });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-              >
-                <option value={labelSet.name}>{labelSet.name}</option>
-                {availableSets
-                  .filter((s) => s.name !== labelSet.name)
-                  .map((s) => (
-                    <option key={s.name} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-              </select>
-              <button
-                onClick={() => {
-                  const name = prompt(
-                    "Save label set as:",
-                    labelSet.name || "Set",
-                  );
-                  if (name) {
-                    const sets = [
-                      ...availableSets.filter((s) => s.name !== name),
-                      {
-                        name,
-                        classes: labelSet.classes,
-                        colors: labelSet.colors,
-                      },
-                    ];
-                    setAvailableSets(sets);
-                    localStorage.setItem(
-                      "sequence_label_sets_v1",
-                      JSON.stringify(sets),
-                    );
-                    setLabelSet({ ...labelSet, name });
-                  }
-                }}
-              >
-                Save
-              </button>
-            </div>
-            {/* Classes editor */}
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Classes</div>
-              {labelSet.classes.map((c, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    marginBottom: 4,
-                    alignItems: "center",
-                  }}
-                >
-                  <span style={{ width: 22, opacity: 0.8 }}>{i + 1}.</span>
-                  <input
-                    value={c}
-                    onChange={(e) =>
-                      setLabelSet((s) => ({
-                        ...s,
-                        classes: s.classes.map((x, idx) =>
-                          idx === i ? e.target.value : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <input
-                    type="color"
-                    value={labelSet.colors[i]}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      startTransition(() => {
-                        setLabelSet((s) => ({
-                          ...s,
-                          colors: s.colors.map((col, idx) =>
-                            idx === i ? val : col,
-                          ),
-                        }));
-                      });
-                    }}
-                  />
-                  <button
-                    onClick={() =>
-                      setLabelSet((s) => ({
-                        ...s,
-                        classes: s.classes.filter((_, idx) => idx !== i),
-                        colors: s.colors.filter((_, idx) => idx !== i),
-                      }))
-                    }
-                  >
-                    -
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() =>
-                  setLabelSet((s) => ({
-                    ...s,
-                    classes: [...s.classes, `Class${s.classes.length + 1}`],
-                    colors: [
-                      ...s.colors,
-                      DEFAULT_COLORS[s.colors.length % DEFAULT_COLORS.length],
-                    ],
-                  }))
-                }
-              >
-                + Add Class
-              </button>
-            </div>
-          </div>
-
-          {/* Tracks */}
-          <div style={{ borderTop: "1px solid #222", paddingTop: 8 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>Tracks</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  onClick={copySelectedTracks}
-                  disabled={!selectedTracks.length}
-                >
-                  Copy
-                </button>
-                <button
-                  onClick={pasteTracks}
-                  disabled={!clipboardRef.current?.length}
-                >
-                  Paste
-                </button>
-                <button
-                  onClick={() => {
-                    applyTracks(() => [], true);
-                    setSelectedIds(new Set());
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            <TrackPanel
-              labelSet={labelSet}
-              tracks={tracks}
-              selectedIds={selectedIds}
-              setSelectedIds={setSelectedIds}
-              setTracks={applyTracks}
-              hiddenClasses={hiddenClasses}
-              setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
-            />
-
-          </div>
-          {/* Bottom-pinned help within the right panel */}
-          <div className={styles.shortcutHelp}>
-            Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
-            KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
-            View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
-          </div>
-        </div>
+        <SLRightPanel
+          labelSet={labelSet}
+          setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
+          availableSets={availableSets}
+          setAvailableSets={setAvailableSets}
+          tracks={tracks}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          applyTracks={applyTracks}
+          hiddenClasses={hiddenClasses}
+          setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
+          showGhosts={showGhosts}
+          setShowGhosts={setShowGhosts}
+          interpolate={interpolate}
+          setInterpolate={setInterpolate}
+          onCopySelectedTracks={copySelectedTracks}
+          onPasteTracks={pasteTracks}
+          canPaste={!!clipboardRef.current?.length}
+        />
       </div>
 
       {/* Bottom help removed (relocated into right panel) */}

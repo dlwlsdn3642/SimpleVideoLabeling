@@ -58,6 +58,53 @@
   min-height: 0;
 }
 
+.viewOptions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.inlineLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.labelSection {
+  margin-bottom: 10px;
+}
+.sectionTitle {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.sectionSubtitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.labelRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.classesList { margin-top: 8px; }
+.classRow {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+.classIndex { width: 22px; opacity: 0.8; }
+.inputText { min-width: 0; }
+.inputColor { }
+.classAdd { margin-top: 4px; }
+
+.tracksSection { border-top: 1px solid var(--border); padding-top: 8px; }
+.tracksHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tracksActions { display: flex; gap: 6px; }
+
 .shortcutHelp {
   position: sticky;
   bottom: 0;
@@ -68,4 +115,3 @@
   opacity: 0.85;
   background: var(--bg);
 }
-
