@@ -1,7 +1,8 @@
 import React, { useRef, useState } from "react";
-import SequenceLabeler from "./SequenceLabeler/SequenceLabeler";
+import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
+import { saveDirHandle } from "./utils/handles";
 
 export default function App() {
   const pm = useRef(new ProjectManager());
@@ -22,10 +23,24 @@ export default function App() {
     }
   };
 
-  const handleCreateTask = () => {
+  const handleCreateTask = async () => {
     if (!currentProject) return;
     const name = prompt("Task name?");
     if (!name) return;
+    if ("showDirectoryPicker" in window) {
+      try {
+        const dir: FileSystemDirectoryHandle = await (window as unknown as {
+          showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
+        }).showDirectoryPicker();
+        const t = pm.current.addTask(currentProject.id, name, dir.name, true);
+        await saveDirHandle(t.id, dir);
+        refresh();
+        setCurrentTask(t);
+        return;
+      } catch {
+        // fall through to input method
+      }
+    }
     const input = document.createElement("input");
     input.type = "file";
     input.setAttribute("webkitdirectory", "true");
@@ -33,12 +48,16 @@ export default function App() {
       const files = input.files;
       if (!files || !files.length) return;
       const file = files[0] as File & { path?: string; webkitRelativePath?: string };
-      if (!file.path) return;
       const relPath = file.webkitRelativePath ?? "";
-      const folder = file.path
-        .slice(0, file.path.length - relPath.length)
-        .replace(/\\/g, "/")
-        .replace(/\/$/, "");
+      const fullPath = file.path ?? "";
+      let folder = "";
+      if (fullPath) {
+        folder = fullPath.slice(0, fullPath.length - relPath.length)
+          .replace(/\\/g, "/")
+          .replace(/\/$/, "");
+      } else {
+        folder = relPath.split("/")[0] ?? "";
+      }
       const t = pm.current.addTask(currentProject.id, name, folder);
       refresh();
       setCurrentTask(t);
@@ -143,6 +162,10 @@ export default function App() {
             initialLabelSetName="Default"
             defaultClasses={["Person", "Car", "Button", "Enemy"]}
             prefetchRadius={8}
+            onFolderImported={folder => {
+              pm.current.updateTaskFolder(currentTask.id, folder, true);
+              refresh();
+            }}
           />
         ) : (
           <div style={{ padding: 16 }}>Select a task.</div>

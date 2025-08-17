@@ -35,7 +35,8 @@ export type Handle = "none" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw" 
 export type Task = {
   id: string;
   name: string;
-  workFolder: string; // path to task workspace
+  workFolder: string; // path or display name for task workspace
+  local?: boolean;    // true if using local directory via File System Access API
 };
 
 export type Project = {

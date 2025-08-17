@@ -36,10 +36,10 @@ export default class ProjectManager {
     return project;
     }
 
-  addTask(projectId: string, name: string, workFolder: string): Task {
+  addTask(projectId: string, name: string, workFolder: string, local = false): Task {
     const project = this.projects.find(p => p.id === projectId);
     if (!project) throw new Error("Project not found");
-    const task: Task = { id: uuid(), name, workFolder };
+    const task: Task = { id: uuid(), name, workFolder, local };
     project.tasks.push(task);
     this.save();
     return task;
@@ -57,11 +57,12 @@ export default class ProjectManager {
     this.save();
   }
 
-  updateTaskFolder(taskId: string, folder: string) {
+  updateTaskFolder(taskId: string, folder: string, local = false) {
     for (const p of this.projects) {
       const t = p.tasks.find(t => t.id === taskId);
       if (t) {
         t.workFolder = folder;
+        t.local = local;
         this.save();
         return;
       }
