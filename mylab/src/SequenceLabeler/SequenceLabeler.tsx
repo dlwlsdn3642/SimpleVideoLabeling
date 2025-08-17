@@ -22,6 +22,7 @@ const SequenceLabeler: React.FC<{
   defaultClasses: string[];
   prefetchRadius?: number;
   ghostAlpha?: number;
+  onFolderImported?: (folder: string) => void;
 }> = ({
   framesBaseUrl,
   indexUrl,
@@ -29,7 +30,8 @@ const SequenceLabeler: React.FC<{
   initialLabelSetName = "Default",
   defaultClasses,
   prefetchRadius = 8,
-  ghostAlpha = 0.35
+  ghostAlpha = 0.35,
+  onFolderImported
 }) => {
   // media
   const [meta, setMeta] = useState<IndexMeta | null>(null);
@@ -105,6 +107,7 @@ const SequenceLabeler: React.FC<{
   // layout refs for timeline width
   const timelineWrapRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
+  const importAttempted = useRef(false);
 
   /** ===== Restore & Load ===== */
   useEffect(() => {
@@ -124,6 +127,7 @@ const SequenceLabeler: React.FC<{
 
   useEffect(() => {
     let aborted = false;
+    if (localFiles) return;
     (async () => {
       try {
         const r = await fetch(indexUrl);
@@ -134,10 +138,14 @@ const SequenceLabeler: React.FC<{
         try {
           m = JSON.parse(raw) as IndexMeta;
         } catch (err) {
-          console.error("index meta parse error", err, {
+          console.warn("index meta parse error", err, {
             contentType: r.headers.get("content-type"),
             bodyPreview: raw.slice(0, 200)
           });
+          if (!importAttempted.current) {
+            importAttempted.current = true;
+            await importFolder();
+          }
           return;
         }
         if (aborted) return;
@@ -156,10 +164,14 @@ const SequenceLabeler: React.FC<{
         }, 0);
       } catch (err) {
         console.error(err);
+        if (!importAttempted.current) {
+          importAttempted.current = true;
+          await importFolder();
+        }
       }
     })();
     return () => { aborted = true; };
-  }, [indexUrl]);
+  }, [indexUrl, localFiles]);
 
   useEffect(() => {
     const raw = localStorage.getItem("sequence_label_sets_v1");
@@ -672,7 +684,7 @@ const SequenceLabeler: React.FC<{
     }
     const dir: FileSystemDirectoryHandle = await (window as unknown as {
       showDirectoryPicker: (opts: { id: string }) => Promise<FileSystemDirectoryHandle>;
-    }).showDirectoryPicker({ id: 'frames-folder' });
+    }).showDirectoryPicker({ id: storagePrefix });
     const entries: LocalFile[] = [];
     // @ts-ignore
     for await (const entry of (dir as any).values()) {
@@ -717,6 +729,7 @@ const SequenceLabeler: React.FC<{
       const max = width / m.width;
       setScale(Math.min(1, max));
     }, 0);
+    onFolderImported?.(dir.name);
   }
 
   /** ===== RAF-throttled seek for timeline ===== */

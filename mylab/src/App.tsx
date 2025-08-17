@@ -150,6 +150,10 @@ export default function App() {
             initialLabelSetName="Default"
             defaultClasses={["Person", "Car", "Button", "Enemy"]}
             prefetchRadius={8}
+            onFolderImported={folder => {
+              pm.current.updateTaskFolder(currentTask.id, folder);
+              refresh();
+            }}
           />
         ) : (
           <div style={{ padding: 16 }}>Select a task.</div>
