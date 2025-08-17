@@ -27,6 +27,9 @@ const Timeline: React.FC<Props> = ({
   onAddKeyframe,
   width = 800,
   rowHeight = 20,
+  selectedIds,
+  onSelectTrack,
+  hiddenClasses,
 }) => {
   const margin = 8;
   const innerW = Math.max(1, width - margin * 2);
