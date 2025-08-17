@@ -53,6 +53,7 @@ const SequenceLabeler: React.FC<{
   prefetchRadius?: number;
   ghostAlpha?: number;
   onFolderImported?: (folder: string) => void;
+  leftTopExtra?: React.ReactNode;
 }> = ({
   framesBaseUrl,
   indexUrl,
@@ -62,6 +63,7 @@ const SequenceLabeler: React.FC<{
   prefetchRadius = 8,
   ghostAlpha = 0.35,
   onFolderImported,
+  leftTopExtra,
 }) => {
   // media
   const [meta, setMeta] = useState<IndexMeta | null>(null);
@@ -1184,6 +1186,11 @@ const SequenceLabeler: React.FC<{
           flexWrap: "wrap",
         }}
       >
+        {leftTopExtra ? (
+          <div style={{ marginRight: 8, display: "flex", alignItems: "center" }}>
+            {leftTopExtra}
+          </div>
+        ) : null}
         <button
           onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
         >
@@ -1344,6 +1351,9 @@ const SequenceLabeler: React.FC<{
             padding: 8,
             overflow: "auto",
             minWidth: MIN_SIDE_WIDTH,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
           }}
         >
           {/* View options */}
@@ -1544,20 +1554,23 @@ const SequenceLabeler: React.FC<{
               setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
             />
 
-            {/* Moved help text here to avoid overlapping with the timeline area */}
-            <div
-              style={{
-                marginTop: 8,
-                paddingTop: 8,
-                borderTop: "1px solid #222",
-                fontSize: 12,
-                opacity: 0.85,
-              }}
-            >
-              Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
-              KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
-              View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
-            </div>
+          </div>
+          {/* Bottom-pinned help within the right panel */}
+          <div
+            style={{
+              position: "sticky",
+              bottom: 0,
+              marginTop: "auto",
+              padding: "6px 8px",
+              borderTop: "1px solid #222",
+              fontSize: 12,
+              opacity: 0.85,
+              background: "#0b0b0b",
+            }}
+          >
+            Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
+            KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
+            View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
           </div>
         </div>
       </div>

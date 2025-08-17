@@ -92,61 +92,13 @@ export default function App() {
     }
   };
 
-  const handleOpenProject = () => {
-    const list = pm.current.getProjects();
-    if (!list.length) {
-      alert("No projects. Create one first.");
-      return;
-    }
-    if (list.length === 1) {
-      setCurrentProject(list[0]);
-      setCurrentTask(null);
-      return;
-    }
-    const choice = prompt(
-      `Open which project?\n` +
-        list.map((p, i) => `${i + 1}. ${p.name}`).join("\n") +
-        `\nEnter number:`,
-      "1",
-    );
-    if (!choice) return;
-    const idx = parseInt(choice, 10) - 1;
-    if (Number.isNaN(idx) || idx < 0 || idx >= list.length) return;
-    setCurrentProject(list[idx]);
-    setCurrentTask(null);
-  };
-
   const handleCloseProject = () => {
     setCurrentProject(null);
     setCurrentTask(null);
   };
 
   return (
-    <div
-      style={{
-        height: "100vh",
-        display: "grid",
-        gridTemplateRows: "auto 1fr",
-        position: "relative",
-      }}
-    >
-      {/* Top header: move panel toggle here to avoid overlap with timeline */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 8px",
-          borderBottom: "1px solid #ccc",
-          background: "#0b0b0b",
-        }}
-      >
-        <button onClick={() => setPanelOpen((v) => !v)} title={panelOpen ? "Hide project panel" : "Show project panel"}>
-          {panelOpen ? "⮜" : "⮞"}
-        </button>
-      </div>
-
-      <div style={{ display: "flex", minHeight: 0 }}>
+    <div style={{ height: "100vh", display: "flex", position: "relative", minHeight: 0 }}>
         <div
           style={{
             width: panelOpen ? 250 : 0,
@@ -162,41 +114,29 @@ export default function App() {
           <>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button onClick={handleCreateProject}>New Project</button>
-              <button onClick={handleOpenProject}>Open Project</button>
               <button onClick={handleCloseProject} disabled={!currentProject}>Close Project</button>
             </div>
-            <ul>
+            <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
               {projects.map(p => (
-                <li key={p.id}>
-                  <button
-                    onClick={() => selectProject(p.id)}
-                    style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal" }}
-                  >
+                <li key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <button onClick={() => selectProject(p.id)} style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal", flex: 1, textAlign: "left" }}>
                     {p.name}
                   </button>
-                  <button onClick={() => handleDeleteProject(p.id)} style={{ marginLeft: 4 }}>✕</button>
+                  <button onClick={() => handleDeleteProject(p.id)} title="Delete project">✕</button>
                 </li>
               ))}
             </ul>
             {currentProject && (
-              <div>
+              <div style={{ marginTop: 8 }}>
                 <h4>Tasks</h4>
                 <button onClick={handleCreateTask}>New Task</button>
-                <ul>
+                <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
                   {currentProject.tasks.map(t => (
-                    <li key={t.id}>
-                      <button
-                        onClick={() => selectTask(t)}
-                        style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal" }}
-                      >
+                    <li key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <button onClick={() => selectTask(t)} style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal", flex: 1, textAlign: "left" }}>
                         {t.name}
                       </button>
-                      <button
-                        onClick={() => handleDeleteTask(currentProject.id, t.id)}
-                        style={{ marginLeft: 4 }}
-                      >
-                        ✕
-                      </button>
+                      <button onClick={() => handleDeleteTask(currentProject.id, t.id)} title="Delete task">✕</button>
                     </li>
                   ))}
                 </ul>
@@ -211,19 +151,26 @@ export default function App() {
               framesBaseUrl={`${currentTask.workFolder}/frames`}
               indexUrl={`${currentTask.workFolder}/index.json`}
               taskId={currentTask.id}
-            initialLabelSetName="Default"
-            defaultClasses={["Person", "Car", "Button", "Enemy"]}
-            prefetchRadius={8}
-            onFolderImported={folder => {
-              pm.current.updateTaskFolder(currentTask.id, folder, true);
-              refresh();
-            }}
-          />
-        ) : (
-          <div style={{ padding: 16 }}>Select a task.</div>
-        )}
+              initialLabelSetName="Default"
+              defaultClasses={["Person", "Car", "Button", "Enemy"]}
+              prefetchRadius={8}
+              leftTopExtra={
+                <button
+                  onClick={() => setPanelOpen(v => !v)}
+                  title={panelOpen ? "Hide project panel" : "Show project panel"}
+                >
+                  {panelOpen ? "⮜" : "⮞"}
+                </button>
+              }
+              onFolderImported={folder => {
+                pm.current.updateTaskFolder(currentTask.id, folder, true);
+                refresh();
+              }}
+            />
+          ) : (
+            <div style={{ padding: 16 }}>Select a task.</div>
+          )}
         </div>
-      </div>
     </div>
   );
 }
