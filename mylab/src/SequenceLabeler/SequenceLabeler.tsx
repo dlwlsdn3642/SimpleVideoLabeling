@@ -20,6 +20,14 @@ const DEFAULT_COLORS = [
   "#911eb4", "#46f0f0", "#f032e6", "#d2f53c", "#fabebe",
 ];
 
+const frameToTimecode = (f: number, fps: number): string => {
+  const total = f / fps;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.floor(total % 60);
+  return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}`;
+};
+
 const SequenceLabeler: React.FC<{
   framesBaseUrl: string;
   indexUrl: string;
@@ -700,6 +708,12 @@ const SequenceLabeler: React.FC<{
     if (!r) return;
     applyTracks(ts => ts.map(t => t.track_id === oneSelected.track_id ? ensureKFAt(t, frame, r) : t), true);
   }
+  function deleteKeyframe(trackId: string, f: number) {
+    applyTracks(ts => ts.map(t => {
+      if (t.track_id !== trackId) return t;
+      return { ...t, keyframes: t.keyframes.filter(k => k.frame !== f) };
+    }), true);
+  }
   function deleteKeyframeAtCurrent() {
     if (!oneSelected) return;
     applyTracks(ts => ts.map(t => {
@@ -993,19 +1007,31 @@ const SequenceLabeler: React.FC<{
             )}
           </div>
           <div ref={timelineWrapRef} style={{ padding: "6px 12px", borderTop: "1px solid #222" }}>
-            <div style={{ display: "flex", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 4, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <span>Frame</span>
+                <input
+                  type="number"
+                  value={frame + 1}
+                  onChange={e => setFrame(clamp((parseInt(e.target.value) || 1) - 1, 0, totalFrames - 1))}
+                  style={{ width: 60 }}
+                />
+                <span>{frameToTimecode(frame, meta?.fps || 30)}</span>
+              </div>
               <button onClick={() => setFrame(f => clamp(f - 1, 0, totalFrames - 1))}>Prev</button>
               <button onClick={() => setFrame(f => clamp(f + 1, 0, totalFrames - 1))}>Next</button>
               <button onClick={gotoPrevKeyframe} disabled={!oneSelected || oneSelected.keyframes.length === 0}>Prev KF</button>
               <button onClick={gotoNextKeyframe} disabled={!oneSelected || oneSelected.keyframes.length === 0}>Next KF</button>
+              <button onClick={addKeyframeAtCurrent} disabled={!oneSelected}>Add KF</button>
             </div>
             <Timeline
               total={totalFrames || 1}
               frame={frame}
               onSeek={scheduleSeek}
-              selectedTracks={selectedTracks.length ? selectedTracks : tracks.slice(0, 1)}
+              tracks={tracks}
+              labelSet={labelSet}
+              onDeleteKeyframe={deleteKeyframe}
               width={timelineWidth}
-              height={56}
             />
           </div>
         </div>
