@@ -67,7 +67,10 @@ const Timeline: React.FC<{
       })}
       <line x1={margin} y1={margin + innerH / 2} x2={margin + innerW} y2={margin + innerH / 2} stroke="#555" />
       {[...kfFrames].map((f, i) => (
-        <line key={`kf-${i}`} x1={scaleX(f)} x2={scaleX(f)} y1={margin} y2={margin + innerH} stroke="#4ea3ff" strokeWidth={2} />
+        <g key={`kf-${i}`}>
+          <line x1={scaleX(f)} x2={scaleX(f)} y1={margin} y2={margin + innerH} stroke="#4ea3ff" strokeWidth={2} />
+          <circle cx={scaleX(f)} cy={margin / 2} r={3} fill="#4ea3ff" />
+        </g>
       ))}
       {[...toggleFrames].map((f, i) => {
         const x = scaleX(f), y = margin;

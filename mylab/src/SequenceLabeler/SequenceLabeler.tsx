@@ -122,24 +122,36 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     let aborted = false;
     (async () => {
-      const r = await fetch(indexUrl);
-      if (!r.ok) throw new Error(`index fetch ${r.status}`);
-      const m: IndexMeta = await r.json();
-      if (aborted) return;
-      setMeta(m);
-      if (m.files?.length) setFiles(m.files);
-      else {
-        const padW = m.zeroPad ?? Math.max(6, String(Math.max(0, m.count - 1)).length);
-        const ext = m.ext ?? "webp";
-        setFiles(Array.from({ length: m.count }, (_, i) => `frame_${pad(i, padW)}.${ext}`));
+      try {
+        const r = await fetch(indexUrl);
+        if (!r.ok) throw new Error(`index fetch ${r.status}`);
+
+        const raw = await r.text();
+        let m: IndexMeta;
+        try {
+          m = JSON.parse(raw) as IndexMeta;
+        } catch (err) {
+          console.error("index meta parse error", err);
+          return;
+        }
+        if (aborted) return;
+        setMeta(m);
+        if (m.files?.length) setFiles(m.files);
+        else {
+          const padW = m.zeroPad ?? Math.max(6, String(Math.max(0, m.count - 1)).length);
+          const ext = m.ext ?? "webp";
+          setFiles(Array.from({ length: m.count }, (_, i) => `frame_${pad(i, padW)}.${ext}`));
+        }
+        setTimeout(() => {
+          if (!canvasWrapRef.current || !m) return;
+          const { width } = canvasWrapRef.current.getBoundingClientRect();
+          const max = width / m.width;
+          setScale(Math.min(1, max));
+        }, 0);
+      } catch (err) {
+        console.error(err);
       }
-      setTimeout(() => {
-        if (!canvasWrapRef.current || !m) return;
-        const { width } = canvasWrapRef.current.getBoundingClientRect();
-        const max = width / m.width;
-        setScale(Math.min(1, max));
-      }, 0);
-    })().catch(console.error);
+    })();
     return () => { aborted = true; };
   }, [indexUrl]);
 
@@ -778,6 +790,12 @@ const SequenceLabeler: React.FC<{
             )}
           </div>
           <div ref={timelineWrapRef} style={{ padding: "6px 12px", borderTop: "1px solid #222" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+              <button onClick={() => setFrame(f => clamp(f - 1, 0, totalFrames - 1))}>Prev</button>
+              <button onClick={() => setFrame(f => clamp(f + 1, 0, totalFrames - 1))}>Next</button>
+              <button onClick={gotoPrevKeyframe} disabled={!oneSelected || oneSelected.keyframes.length === 0}>Prev KF</button>
+              <button onClick={gotoNextKeyframe} disabled={!oneSelected || oneSelected.keyframes.length === 0}>Next KF</button>
+            </div>
             <Timeline
               total={totalFrames || 1}
               frame={frame}
