@@ -93,25 +93,26 @@ export default function App() {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex" }}>
+    <div style={{ height: "100vh", display: "flex", position: "relative" }}>
       <div
         style={{
-          width: panelOpen ? 250 : 32,
-          borderRight: "1px solid #ccc",
-          padding: 8,
+          width: panelOpen ? 250 : 0,
+          borderRight: panelOpen ? "1px solid #ccc" : "none",
+          padding: panelOpen ? 8 : 0,
           overflowY: panelOpen ? "auto" : "hidden",
           overflowX: "hidden",
-          position: "relative"
+          position: "relative",
+          transition: "width 0.2s"
         }}
       >
-        <button
-          onClick={() => setPanelOpen(o => !o)}
-          style={{ position: "absolute", top: 8, right: 8 }}
-        >
-          {panelOpen ? "⮜" : "⮞"}
-        </button>
         {panelOpen && (
           <>
+            <button
+              onClick={() => setPanelOpen(false)}
+              style={{ position: "absolute", bottom: 8, right: 8 }}
+            >
+              {"⮜"}
+            </button>
             <button onClick={handleCreateProject}>New Project</button>
             <ul>
               {projects.map(p => (
@@ -139,12 +140,12 @@ export default function App() {
                       >
                         {t.name}
                       </button>
-                        <button
-                          onClick={() => handleDeleteTask(currentProject.id, t.id)}
-                          style={{ marginLeft: 4 }}
-                        >
-                          ✕
-                        </button>
+                      <button
+                        onClick={() => handleDeleteTask(currentProject.id, t.id)}
+                        style={{ marginLeft: 4 }}
+                      >
+                        ✕
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -171,6 +172,14 @@ export default function App() {
           <div style={{ padding: 16 }}>Select a task.</div>
         )}
       </div>
+      {!panelOpen && (
+        <button
+          onClick={() => setPanelOpen(true)}
+          style={{ position: "absolute", bottom: 8, left: 8 }}
+        >
+          {"⮞"}
+        </button>
+      )}
     </div>
   );
 }
