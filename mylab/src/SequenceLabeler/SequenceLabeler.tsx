@@ -1530,23 +1530,26 @@ const SequenceLabeler: React.FC<{
               hiddenClasses={hiddenClasses}
               setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
             />
+
+            {/* Moved help text here to avoid overlapping with the timeline area */}
+            <div
+              style={{
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: "1px solid #222",
+                fontSize: 12,
+                opacity: 0.85,
+              }}
+            >
+              Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
+              KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
+              View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom help */}
-      <div
-        style={{
-          padding: "6px 12px",
-          borderTop: "1px solid #222",
-          fontSize: 12,
-          opacity: 0.85,
-        }}
-      >
-        Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
-        KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
-        View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
-      </div>
+      {/* Bottom help removed (relocated into right panel) */}
 
       {/* Shortcuts Modal */}
       <ShortcutModal
