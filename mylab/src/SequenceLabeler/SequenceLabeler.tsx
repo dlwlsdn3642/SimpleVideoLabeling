@@ -13,6 +13,7 @@ import {
   parseNumericKey
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
+import { loadDirHandle, saveDirHandle } from "../utils/handles";
 
 const SequenceLabeler: React.FC<{
   framesBaseUrl: string;
@@ -107,7 +108,7 @@ const SequenceLabeler: React.FC<{
   // layout refs for timeline width
   const timelineWrapRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
-  const importAttempted = useRef(false);
+  const [needsImport, setNeedsImport] = useState(false);
 
   /** ===== Restore & Load ===== */
   useEffect(() => {
@@ -130,6 +131,15 @@ const SequenceLabeler: React.FC<{
     if (localFiles) return;
     (async () => {
       try {
+        const handle = await loadDirHandle(storagePrefix);
+        if (handle && (await handle.queryPermission({ mode: "read" })) === "granted") {
+          await loadFromDir(handle);
+          setNeedsImport(false);
+          onFolderImported?.(handle.name);
+          return;
+        }
+      } catch {}
+      try {
         const r = await fetch(indexUrl);
         if (!r.ok) throw new Error(`index fetch ${r.status}`);
 
@@ -142,10 +152,7 @@ const SequenceLabeler: React.FC<{
             contentType: r.headers.get("content-type"),
             bodyPreview: raw.slice(0, 200)
           });
-          if (!importAttempted.current) {
-            importAttempted.current = true;
-            await importFolder();
-          }
+          setNeedsImport(true);
           return;
         }
         if (aborted) return;
@@ -164,14 +171,11 @@ const SequenceLabeler: React.FC<{
         }, 0);
       } catch (err) {
         console.error(err);
-        if (!importAttempted.current) {
-          importAttempted.current = true;
-          await importFolder();
-        }
+        setNeedsImport(true);
       }
     })();
     return () => { aborted = true; };
-  }, [indexUrl, localFiles]);
+  }, [indexUrl, localFiles, storagePrefix]);
 
   useEffect(() => {
     const raw = localStorage.getItem("sequence_label_sets_v1");
@@ -677,18 +681,11 @@ const SequenceLabeler: React.FC<{
     alert("YOLO 내보내기 완료");
   }
 
-  async function importFolder() {
-    if (!('showDirectoryPicker' in window)) {
-      alert('Chromium 계열 브라우저에서 사용하세요.');
-      return;
-    }
-    const dir: FileSystemDirectoryHandle = await (window as unknown as {
-      showDirectoryPicker: (opts: { id: string }) => Promise<FileSystemDirectoryHandle>;
-    }).showDirectoryPicker({ id: storagePrefix });
+  const loadFromDir = async (dir: FileSystemDirectoryHandle) => {
     const entries: LocalFile[] = [];
     // @ts-ignore
     for await (const entry of (dir as any).values()) {
-      if (entry.kind === 'file') {
+      if (entry.kind === "file") {
         const name = String(entry.name);
         if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
         const file = await entry.getFile();
@@ -697,7 +694,7 @@ const SequenceLabeler: React.FC<{
       }
     }
     if (!entries.length) {
-      alert('이미지 파일이 없습니다.');
+      alert("이미지 파일이 없습니다.");
       return;
     }
     entries.sort((a, b) => {
@@ -729,6 +726,19 @@ const SequenceLabeler: React.FC<{
       const max = width / m.width;
       setScale(Math.min(1, max));
     }, 0);
+  };
+
+  async function importFolder() {
+    if (!("showDirectoryPicker" in window)) {
+      alert("Chromium 계열 브라우저에서 사용하세요.");
+      return;
+    }
+    const dir: FileSystemDirectoryHandle = await (window as unknown as {
+      showDirectoryPicker: (opts: { id: string }) => Promise<FileSystemDirectoryHandle>;
+    }).showDirectoryPicker({ id: storagePrefix });
+    await loadFromDir(dir);
+    await saveDirHandle(storagePrefix, dir);
+    setNeedsImport(false);
     onFolderImported?.(dir.name);
   }
 
@@ -769,6 +779,7 @@ const SequenceLabeler: React.FC<{
         <button onClick={togglePresenceAtCurrent} disabled={!selectedTracks.length}>Toggle Presence (N)</button>
 
         <button style={{ marginLeft: "auto" }} onClick={importFolder}>Import Folder</button>
+        {needsImport && <span style={{ color: "#f66" }}>Load failed. Use Import Folder.</span>}
         <button onClick={exportJSON}>Export JSON</button>
         <button onClick={exportYOLO}>Export YOLO</button>
         <button onClick={() => setKeyUIOpen(true)}>Shortcuts</button>

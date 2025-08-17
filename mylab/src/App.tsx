@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react";
 import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
+import { saveDirHandle } from "./utils/handles";
 
 export default function App() {
   const pm = useRef(new ProjectManager());
@@ -22,13 +23,26 @@ export default function App() {
     }
   };
 
-  const handleCreateTask = () => {
+  const handleCreateTask = async () => {
     if (!currentProject) return;
     const name = prompt("Task name?");
     if (!name) return;
+    if ("showDirectoryPicker" in window) {
+      try {
+        const dir: FileSystemDirectoryHandle = await (window as unknown as {
+          showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
+        }).showDirectoryPicker();
+        const t = pm.current.addTask(currentProject.id, name, dir.name, true);
+        await saveDirHandle(t.id, dir);
+        refresh();
+        setCurrentTask(t);
+        return;
+      } catch {
+        // fall through to input method
+      }
+    }
     const input = document.createElement("input");
     input.type = "file";
-    // allow directory selection in Chromium based browsers
     input.setAttribute("webkitdirectory", "true");
     input.onchange = () => {
       const files = input.files;
@@ -38,12 +52,10 @@ export default function App() {
       const fullPath = file.path ?? "";
       let folder = "";
       if (fullPath) {
-        // Browsers like Electron expose the absolute path via file.path
         folder = fullPath.slice(0, fullPath.length - relPath.length)
           .replace(/\\/g, "/")
           .replace(/\/$/, "");
       } else {
-        // Fallback: derive top-level folder from relative path so task can still be added
         folder = relPath.split("/")[0] ?? "";
       }
       const t = pm.current.addTask(currentProject.id, name, folder);
@@ -151,7 +163,7 @@ export default function App() {
             defaultClasses={["Person", "Car", "Button", "Enemy"]}
             prefetchRadius={8}
             onFolderImported={folder => {
-              pm.current.updateTaskFolder(currentTask.id, folder);
+              pm.current.updateTaskFolder(currentTask.id, folder, true);
               refresh();
             }}
           />
