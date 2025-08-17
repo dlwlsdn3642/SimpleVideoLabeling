@@ -24,7 +24,11 @@ export type Track = {
   hidden?: boolean;            // UI on/off
 };
 
-export type LabelSet = { name: string; classes: string[] };
+export type LabelSet = {
+  name: string;
+  classes: string[];
+  colors: string[];
+};
 
 export type KeyMap = Record<string, string>; // action -> key string
 

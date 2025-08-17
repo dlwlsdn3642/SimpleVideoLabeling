@@ -15,6 +15,11 @@ import {
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle } from "../utils/handles";
 
+const DEFAULT_COLORS = [
+  "#e6194b", "#3cb44b", "#ffe119", "#0082c8", "#f58231",
+  "#911eb4", "#46f0f0", "#f032e6", "#d2f53c", "#fabebe",
+];
+
 const SequenceLabeler: React.FC<{
   framesBaseUrl: string;
   indexUrl: string;
@@ -40,6 +45,7 @@ const SequenceLabeler: React.FC<{
   const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
+  const [fitWidth, setFitWidth] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
@@ -48,9 +54,42 @@ const SequenceLabeler: React.FC<{
   const [playing, setPlaying] = useState(false);
 
   // labels
-  const [labelSet, setLabelSet] = useState<LabelSet>({ name: initialLabelSetName, classes: defaultClasses });
+  const [labelSet, setLabelSet] = useState<LabelSet>({
+    name: initialLabelSetName,
+    classes: defaultClasses,
+    colors: defaultClasses.map((_, i) => DEFAULT_COLORS[i % DEFAULT_COLORS.length])
+  });
   const [availableSets, setAvailableSets] = useState<LabelSet[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const historyRef = useRef<Track[][]>([]);
+  const futureRef = useRef<Track[][]>([]);
+  const applyTracks = useCallback((updater: (ts: Track[]) => Track[]) => {
+    setTracks(ts => {
+      const next = updater(ts);
+      if (next !== ts) {
+        historyRef.current.push(JSON.parse(JSON.stringify(ts)));
+        if (historyRef.current.length > 100) historyRef.current.shift();
+        futureRef.current = [];
+      }
+      return next;
+    });
+  }, []);
+  const undo = useCallback(() => {
+    setTracks(curr => {
+      const prev = historyRef.current.pop();
+      if (!prev) return curr;
+      futureRef.current.push(JSON.parse(JSON.stringify(curr)));
+      return prev;
+    });
+  }, []);
+  const redo = useCallback(() => {
+    setTracks(curr => {
+      const next = futureRef.current.pop();
+      if (!next) return curr;
+      historyRef.current.push(JSON.parse(JSON.stringify(curr)));
+      return next;
+    });
+  }, []);
   const [interpolate, setInterpolate] = useState(true);
 
   // selection
@@ -95,12 +134,14 @@ const SequenceLabeler: React.FC<{
     "toggle_interpolate": "i",
     "toggle_presence": "n",
     "copy_tracks": "Ctrl+c",
-    "paste_tracks": "Ctrl+v"
+    "paste_tracks": "Ctrl+v",
+    "undo": "Ctrl+z",
+    "redo": "Ctrl+y"
   };
   const storagePrefix = taskId ?? indexUrl;
   const [keymap, setKeymap] = useState<KeyMap>(() => {
     const raw = localStorage.getItem(`${storagePrefix}::keymap_v2`);
-    return raw ? JSON.parse(raw) : DEFAULT_KEYMAP;
+    return raw ? { ...DEFAULT_KEYMAP, ...JSON.parse(raw) } : DEFAULT_KEYMAP;
   });
   const [keyUIOpen, setKeyUIOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
@@ -110,13 +151,63 @@ const SequenceLabeler: React.FC<{
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
   const [needsImport, setNeedsImport] = useState(false);
 
+  const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
+    const entries: LocalFile[] = [];
+    // @ts-expect-error FileSystemDirectoryHandle.values is not yet typed
+    for await (const entry of (dir as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
+      if (entry.kind === "file") {
+        const name = String(entry.name);
+        if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
+        const file = await entry.getFile();
+        const url = URL.createObjectURL(file);
+        entries.push({ name, handle: entry as FileSystemFileHandle, url });
+      }
+    }
+    if (!entries.length) {
+      alert("이미지 파일이 없습니다.");
+      return;
+    }
+    entries.sort((a, b) => {
+      const na = parseNumericKey(a.name);
+      const nb = parseNumericKey(b.name);
+      if (Number.isNaN(na) && Number.isNaN(nb)) return a.name.localeCompare(b.name);
+      if (Number.isNaN(na)) return 1;
+      if (Number.isNaN(nb)) return -1;
+      return na - nb;
+    });
+
+    const first = await entries[0].handle.getFile();
+    const bmp = await createImageBitmap(first);
+    const m: IndexMeta = {
+      width: bmp.width,
+      height: bmp.height,
+      fps: 30,
+      count: entries.length,
+      files: entries.map(e => e.name)
+    };
+    setMeta(m);
+    setLocalFiles(entries);
+    setFiles([]);
+    cacheRef.current.clear();
+    setFrame(0);
+    setTimeout(() => {
+      if (!canvasWrapRef.current) return;
+      const { width } = canvasWrapRef.current.getBoundingClientRect();
+      const max = width / m.width;
+      setScale(fitWidth ? max : Math.min(1, max));
+    }, 0);
+  }, [fitWidth]);
+
   /** ===== Restore & Load ===== */
   useEffect(() => {
     const raw = localStorage.getItem(`${storagePrefix}::autosave_v2`);
     if (raw) {
       try {
         const s = JSON.parse(raw);
-        if (s.labelSet) setLabelSet(s.labelSet);
+        if (s.labelSet) setLabelSet({
+          ...s.labelSet,
+          colors: s.labelSet.colors ?? s.labelSet.classes.map((_: unknown, i: number) => DEFAULT_COLORS[i % DEFAULT_COLORS.length])
+        });
         if (s.tracks) setTracks(s.tracks);
         if (typeof s.frame === "number") setFrame(s.frame);
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
@@ -138,7 +229,7 @@ const SequenceLabeler: React.FC<{
           onFolderImported?.(handle.name);
           return;
         }
-      } catch {}
+        } catch { /* ignore */ }
       try {
         const r = await fetch(indexUrl);
         if (!r.ok) throw new Error(`index fetch ${r.status}`);
@@ -167,7 +258,7 @@ const SequenceLabeler: React.FC<{
           if (!canvasWrapRef.current || !m) return;
           const { width } = canvasWrapRef.current.getBoundingClientRect();
           const max = width / m.width;
-          setScale(Math.min(1, max));
+          setScale(fitWidth ? max : Math.min(1, max));
         }, 0);
       } catch (err) {
         console.error(err);
@@ -175,13 +266,17 @@ const SequenceLabeler: React.FC<{
       }
     })();
     return () => { aborted = true; };
-  }, [indexUrl, localFiles, storagePrefix]);
+  }, [indexUrl, localFiles, storagePrefix, fitWidth, loadFromDir, onFolderImported]);
 
   useEffect(() => {
     const raw = localStorage.getItem("sequence_label_sets_v1");
     if (raw) {
       try {
-        setAvailableSets(JSON.parse(raw));
+        const sets: LabelSet[] = JSON.parse(raw);
+        setAvailableSets(sets.map(s => ({
+          ...s,
+          colors: s.colors ?? s.classes.map((_: unknown, i: number) => DEFAULT_COLORS[i % DEFAULT_COLORS.length])
+        })));
       } catch (err) {
         console.error(err);
       }
@@ -216,15 +311,16 @@ const SequenceLabeler: React.FC<{
     const el = canvasWrapRef.current;
     const update = () => {
       const { width, height } = el.getBoundingClientRect();
+      const fitW = Math.max(0.1, Math.min(3, width / meta.width));
       const max = Math.max(0.1, Math.min(3, width / meta.width, height / meta.height));
-      setScaleMax(max);
-      setScale(s => Math.min(s, max));
+      setScaleMax(fitWidth ? fitW : max);
+      if (fitWidth) setScale(fitW); else setScale(s => Math.min(s, max));
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [meta]);
+  }, [meta, fitWidth]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(async (idx: number): Promise<ImageBitmap | null> => {
@@ -308,10 +404,11 @@ const SequenceLabeler: React.FC<{
       // ghosts
       for (const t of tracks) {
         if (t.hidden) continue;
+        const color = labelSet.colors[t.class_id] || "#66d9ef";
         const prev = rectAtFrame(t, frame - 1, interpolate);
-        if (prev) drawRect(prev, "#9cf", ghostAlpha, true);
+        if (prev) drawRect(prev, color, ghostAlpha, true);
         const next = rectAtFrame(t, frame + 1, interpolate);
-        if (next) drawRect(next, "#fc9", ghostAlpha, true);
+        if (next) drawRect(next, color, ghostAlpha, true);
       }
 
       // current rects
@@ -319,8 +416,9 @@ const SequenceLabeler: React.FC<{
         if (t.hidden) continue;
         const r = rectAtFrame(t, frame, interpolate);
         if (!r) continue;
+        const color = labelSet.colors[t.class_id] || "#66d9ef";
         const isSel = selectedIds.has(t.track_id);
-        drawRect(r, isSel ? "#00e5ff" : "#66d9ef", 1, false);
+        drawRect(r, color, isSel ? 1 : 0.7, false);
 
         // tag
         ctx.save();
@@ -328,7 +426,10 @@ const SequenceLabeler: React.FC<{
         const tag = `${cls}${t.name ? ` (${t.name})` : ""}`;
         ctx.font = "12px monospace";
         const x = r.x * scale, y = r.y * scale, w = ctx.measureText(tag).width + 8;
-        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y - 18, w, 18);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.5;
+        ctx.fillRect(x, y - 18, w, 18);
+        ctx.globalAlpha = 1;
         ctx.fillStyle = "#fff"; ctx.fillText(tag, x + 4, y - 5);
         ctx.restore();
       }
@@ -352,7 +453,7 @@ const SequenceLabeler: React.FC<{
       }
     })();
     return () => { cancelled = true; };
-  }, [frame, tracks, selectedIds, labelSet.classes, interpolate, ghostAlpha, meta, getImage, scale, draftRect]);
+  }, [frame, tracks, selectedIds, labelSet.classes, labelSet.colors, interpolate, ghostAlpha, meta, getImage, scale, draftRect]);
 
   /** ===== Keyboard ===== */
   useEffect(() => {
@@ -388,6 +489,8 @@ const SequenceLabeler: React.FC<{
       else if (match("toggle_presence")) togglePresenceAtCurrent();
       else if (match("copy_tracks")) copySelectedTracks();
       else if (match("paste_tracks")) pasteTracks();
+      else if (match("undo")) { undo(); e.preventDefault(); }
+      else if (match("redo")) { redo(); e.preventDefault(); }
       else {
         if (/^\d$/.test(e.key) && e.key !== "0") {
           const idx = parseInt(e.key, 10) - 1;
@@ -397,7 +500,7 @@ const SequenceLabeler: React.FC<{
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [keymap, files.length, localFiles, labelSet.classes, recordingAction, selectedIds]);
+    }, [keymap, files.length, localFiles, labelSet.classes, recordingAction, selectedIds, addKeyframeAtCurrent, deleteKeyframeAtCurrent, gotoPrevKeyframe, gotoNextKeyframe, togglePresenceAtCurrent, copySelectedTracks, pasteTracks, undo, redo]);
 
   /** ===== Playback ===== */
   useEffect(() => {
@@ -508,7 +611,7 @@ const SequenceLabeler: React.FC<{
     const { origRects, multi } = dragRef.current;
     if (!origRects || origRects.size === 0) return;
 
-    setTracks(ts => {
+    applyTracks(ts => {
       const map = new Map(ts.map(t => [t.track_id, t]));
 
       const apply = (tid: string, r: RectPX) => {
@@ -569,7 +672,7 @@ const SequenceLabeler: React.FC<{
         keyframes: [{ frame, bbox_xywh: [rect.x, rect.y, rect.w, rect.h] }],
         presence_toggles: []
       };
-      setTracks(ts => [...ts, t]);
+      applyTracks(ts => [...ts, t]);
       setSelectedIds(new Set([t.track_id]));
     }
     setDragHandle("none");
@@ -583,11 +686,11 @@ const SequenceLabeler: React.FC<{
     if (!oneSelected) return;
     const r = rectAtFrame(oneSelected, frame, interpolate);
     if (!r) return;
-    setTracks(ts => ts.map(t => t.track_id === oneSelected.track_id ? ensureKFAt(t, frame, r) : t));
+    applyTracks(ts => ts.map(t => t.track_id === oneSelected.track_id ? ensureKFAt(t, frame, r) : t));
   }
   function deleteKeyframeAtCurrent() {
     if (!oneSelected) return;
-    setTracks(ts => ts.map(t => {
+    applyTracks(ts => ts.map(t => {
       if (t.track_id !== oneSelected.track_id) return t;
       const kfs = t.keyframes.filter(k => k.frame !== frame);
       return { ...t, keyframes: kfs };
@@ -614,7 +717,7 @@ const SequenceLabeler: React.FC<{
   }
   function togglePresenceAtCurrent() {
     if (!selectedTracks.length) return;
-    setTracks(ts => ts.map(t => {
+    applyTracks(ts => ts.map(t => {
       if (!selectedIds.has(t.track_id)) return t;
       const arr = [...t.presence_toggles];
       const i = arr.indexOf(frame);
@@ -681,53 +784,6 @@ const SequenceLabeler: React.FC<{
     alert("YOLO 내보내기 완료");
   }
 
-  const loadFromDir = async (dir: FileSystemDirectoryHandle) => {
-    const entries: LocalFile[] = [];
-    // @ts-ignore
-    for await (const entry of (dir as any).values()) {
-      if (entry.kind === "file") {
-        const name = String(entry.name);
-        if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
-        const file = await entry.getFile();
-        const url = URL.createObjectURL(file);
-        entries.push({ name, handle: entry, url });
-      }
-    }
-    if (!entries.length) {
-      alert("이미지 파일이 없습니다.");
-      return;
-    }
-    entries.sort((a, b) => {
-      const na = parseNumericKey(a.name);
-      const nb = parseNumericKey(b.name);
-      if (Number.isNaN(na) && Number.isNaN(nb)) return a.name.localeCompare(b.name);
-      if (Number.isNaN(na)) return 1;
-      if (Number.isNaN(nb)) return -1;
-      return na - nb;
-    });
-
-    const first = await entries[0].handle.getFile();
-    const bmp = await createImageBitmap(first);
-    const m: IndexMeta = {
-      width: bmp.width,
-      height: bmp.height,
-      fps: 30,
-      count: entries.length,
-      files: entries.map(e => e.name)
-    };
-    setMeta(m);
-    setLocalFiles(entries);
-    setFiles([]);
-    cacheRef.current.clear();
-    setFrame(0);
-    setTimeout(() => {
-      if (!canvasWrapRef.current) return;
-      const { width } = canvasWrapRef.current.getBoundingClientRect();
-      const max = width / m.width;
-      setScale(Math.min(1, max));
-    }, 0);
-  };
-
   async function importFolder() {
     if (!("showDirectoryPicker" in window)) {
       alert("Chromium 계열 브라우저에서 사용하세요.");
@@ -768,8 +824,11 @@ const SequenceLabeler: React.FC<{
         <span style={{ opacity: 0.85 }}>Frame {frame + 1}/{totalFrames || "—"}</span>
 
         <span style={{ marginLeft: 16 }}>
-          Scale: <input type="range" min={0.1} max={scaleMax} step={0.05} value={scale} onChange={e => setScale(Math.min(parseFloat(e.target.value), scaleMax))} />
+          Scale: <input type="range" min={0.1} max={scaleMax} step={0.05} value={scale} onChange={e => setScale(Math.min(parseFloat(e.target.value), scaleMax))} disabled={fitWidth} />
           <span style={{ marginLeft: 6 }}>{(scale * 100).toFixed(0)}%</span>
+          <label style={{ marginLeft: 8 }}>
+            Fit Width <input type="checkbox" checked={fitWidth} onChange={e => setFitWidth(e.target.checked)} />
+          </label>
         </span>
 
         <span style={{ marginLeft: 16 }}>
@@ -802,7 +861,11 @@ const SequenceLabeler: React.FC<{
                   try {
                     const sets: LabelSet[] = JSON.parse(raw);
                     const s = sets.find(x => x.name === name);
-                    if (s) setLabelSet({ name: s.name, classes: [...s.classes] });
+                    if (s) setLabelSet({
+                      name: s.name,
+                      classes: [...s.classes],
+                      colors: s.colors ?? s.classes.map((_: unknown, i: number) => DEFAULT_COLORS[i % DEFAULT_COLORS.length])
+                    });
                   } catch (err) {
                     console.error(err);
                   }
@@ -814,7 +877,7 @@ const SequenceLabeler: React.FC<{
               <button onClick={() => {
                 const name = prompt("Save label set as:", labelSet.name || "Set");
                 if (name) {
-                  const sets = [...availableSets.filter(s => s.name !== name), { name, classes: labelSet.classes }];
+                  const sets = [...availableSets.filter(s => s.name !== name), { name, classes: labelSet.classes, colors: labelSet.colors }];
                   setAvailableSets(sets);
                   localStorage.setItem("sequence_label_sets_v1", JSON.stringify(sets));
                   setLabelSet({ ...labelSet, name });
@@ -825,16 +888,29 @@ const SequenceLabeler: React.FC<{
             <div style={{ marginTop: 8 }}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>Classes</div>
               {labelSet.classes.map((c, i) => (
-                <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4, alignItems: "center" }}>
                   <span style={{ width: 22, opacity: 0.8 }}>{i + 1}.</span>
                   <input
                     value={c}
                     onChange={e => setLabelSet(s => ({ ...s, classes: s.classes.map((x, idx) => idx === i ? e.target.value : x) }))}
                   />
-                  <button onClick={() => setLabelSet(s => ({ ...s, classes: s.classes.filter((_, idx) => idx !== i) }))}>-</button>
+                  <input
+                    type="color"
+                    value={labelSet.colors[i]}
+                    onChange={e => setLabelSet(s => ({ ...s, colors: s.colors.map((col, idx) => idx === i ? e.target.value : col) }))}
+                  />
+                  <button onClick={() => setLabelSet(s => ({
+                    ...s,
+                    classes: s.classes.filter((_, idx) => idx !== i),
+                    colors: s.colors.filter((_, idx) => idx !== i)
+                  }))}>-</button>
                 </div>
               ))}
-              <button onClick={() => setLabelSet(s => ({ ...s, classes: [...s.classes, `Class${s.classes.length + 1}`] }))}>+ Add Class</button>
+              <button onClick={() => setLabelSet(s => ({
+                ...s,
+                classes: [...s.classes, `Class${s.classes.length + 1}`],
+                colors: [...s.colors, DEFAULT_COLORS[s.colors.length % DEFAULT_COLORS.length]]
+              }))}>+ Add Class</button>
             </div>
           </div>
 
@@ -845,7 +921,7 @@ const SequenceLabeler: React.FC<{
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={copySelectedTracks} disabled={!selectedTracks.length}>Copy</button>
                 <button onClick={pasteTracks} disabled={!clipboardRef.current?.length}>Paste</button>
-                <button onClick={() => { setTracks([]); setSelectedIds(new Set()); }}>Clear</button>
+                <button onClick={() => { applyTracks(() => []); setSelectedIds(new Set()); }}>Clear</button>
               </div>
             </div>
 
@@ -854,7 +930,7 @@ const SequenceLabeler: React.FC<{
               tracks={tracks}
               selectedIds={selectedIds}
               setSelectedIds={setSelectedIds}
-              setTracks={updater => setTracks(updater)}
+              setTracks={applyTracks}
             />
           </div>
         </div>
@@ -928,7 +1004,7 @@ const SequenceLabeler: React.FC<{
       track_id: `t_${uuid()}`,
       name: (t.name ?? t.track_id) + " (copy)"
     }));
-    setTracks(ts => [...ts, ...pasted]);
+    applyTracks(ts => [...ts, ...pasted]);
     setSelectedIds(new Set(pasted.map(t => t.track_id)));
   }
 };

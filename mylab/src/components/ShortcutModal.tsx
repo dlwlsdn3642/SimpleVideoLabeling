@@ -17,7 +17,9 @@ const ACTION_LABELS: Record<string, string> = {
   "toggle_interpolate": "보간 전환",
   "toggle_presence": "존재 전환",
   "copy_tracks": "트랙 복사",
-  "paste_tracks": "트랙 붙여넣기"
+  "paste_tracks": "트랙 붙여넣기",
+  "undo": "되돌리기",
+  "redo": "다시 실행"
 };
 
 type Props = {
@@ -74,7 +76,9 @@ const ShortcutModal: React.FC<Props> = ({
             "toggle_interpolate": "i",
             "toggle_presence": "n",
             "copy_tracks": "Ctrl+c",
-            "paste_tracks": "Ctrl+v"
+            "paste_tracks": "Ctrl+v",
+            "undo": "Ctrl+z",
+            "redo": "Ctrl+y"
           })); }}>Reset</button>
           <button
             onClick={() => { localStorage.setItem(`${indexUrl}::keymap_v2`, JSON.stringify(keymap)); setRecordingAction(null); onClose(); }}
