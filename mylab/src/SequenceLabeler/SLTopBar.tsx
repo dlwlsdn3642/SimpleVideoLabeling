@@ -50,7 +50,7 @@ const SLTopBar: React.FC<Props> = ({
         max={Math.max(0, totalFrames - 1)}
         value={frame}
         onChange={(e) => onSeek(parseInt(e.target.value))}
-        style={{ flex: 1, minWidth: 180 }}
+        className={styles.seekRange}
       />
       <button onClick={onNextFrame} aria-label="Next frame">→</button>
       <button onClick={onTogglePlay} aria-label={playing ? "Pause" : "Play"}>
@@ -73,4 +73,3 @@ const SLTopBar: React.FC<Props> = ({
 };
 
 export default SLTopBar;
-
