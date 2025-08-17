@@ -122,26 +122,44 @@ export default function App() {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex", position: "relative" }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "grid",
+        gridTemplateRows: "auto 1fr",
+        position: "relative",
+      }}
+    >
+      {/* Top header: move panel toggle here to avoid overlap with timeline */}
       <div
         style={{
-          width: panelOpen ? 250 : 0,
-          borderRight: panelOpen ? "1px solid #ccc" : "none",
-          padding: panelOpen ? 8 : 0,
-          overflowY: panelOpen ? "auto" : "hidden",
-          overflowX: "hidden",
-          position: "relative",
-          transition: "width 0.2s"
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 8px",
+          borderBottom: "1px solid #ccc",
+          background: "#0b0b0b",
         }}
       >
+        <button onClick={() => setPanelOpen((v) => !v)} title={panelOpen ? "Hide project panel" : "Show project panel"}>
+          {panelOpen ? "⮜" : "⮞"}
+        </button>
+      </div>
+
+      <div style={{ display: "flex", minHeight: 0 }}>
+        <div
+          style={{
+            width: panelOpen ? 250 : 0,
+            borderRight: panelOpen ? "1px solid #ccc" : "none",
+            padding: panelOpen ? 8 : 0,
+            overflowY: panelOpen ? "auto" : "hidden",
+            overflowX: "hidden",
+            position: "relative",
+            transition: "width 0.2s"
+          }}
+        >
         {panelOpen && (
           <>
-            <button
-              onClick={() => setPanelOpen(false)}
-              style={{ position: "absolute", bottom: 8, right: 8 }}
-            >
-              {"⮜"}
-            </button>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button onClick={handleCreateProject}>New Project</button>
               <button onClick={handleOpenProject}>Open Project</button>
@@ -186,13 +204,13 @@ export default function App() {
             )}
           </>
         )}
-      </div>
-      <div style={{ flex: 1 }}>
-        {currentTask ? (
-          <SequenceLabeler
-            framesBaseUrl={`${currentTask.workFolder}/frames`}
-            indexUrl={`${currentTask.workFolder}/index.json`}
-            taskId={currentTask.id}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+          {currentTask ? (
+            <SequenceLabeler
+              framesBaseUrl={`${currentTask.workFolder}/frames`}
+              indexUrl={`${currentTask.workFolder}/index.json`}
+              taskId={currentTask.id}
             initialLabelSetName="Default"
             defaultClasses={["Person", "Car", "Button", "Enemy"]}
             prefetchRadius={8}
@@ -204,15 +222,8 @@ export default function App() {
         ) : (
           <div style={{ padding: 16 }}>Select a task.</div>
         )}
+        </div>
       </div>
-      {!panelOpen && (
-        <button
-          onClick={() => setPanelOpen(true)}
-          style={{ position: "absolute", bottom: 8, left: 8 }}
-        >
-          {"⮞"}
-        </button>
-      )}
     </div>
   );
 }
