@@ -960,15 +960,23 @@ const SequenceLabeler: React.FC<{
   function addKeyframe(trackId: string, f: number) {
     const t = tracks.find((t) => t.track_id === trackId);
     if (!t) return;
+    const idx = findKFIndexAtOrBefore(t.keyframes, f);
     let r = rectAtFrame(t, f, interpolate);
-    if (!r) {
-      const idx = findKFIndexAtOrBefore(t.keyframes, f);
-      if (idx >= 0) r = rectFromKF(t.keyframes[idx]);
+    if (!r && idx >= 0) {
+      r = rectFromKF(t.keyframes[idx]);
     }
     if (!r) return;
     applyTracks(
       (ts) =>
-        ts.map((tt) => (tt.track_id === trackId ? ensureKFAt(tt, f, r) : tt)),
+        ts.map((tt) => {
+          if (tt.track_id !== trackId) return tt;
+          const kfs = [...tt.keyframes];
+          if (idx >= 0 && kfs[idx].absent) {
+            kfs[idx] = { ...kfs[idx], absent: false };
+          }
+          const updated = { ...tt, keyframes: kfs };
+          return ensureKFAt(updated, f, r!);
+        }),
       true,
     );
   }

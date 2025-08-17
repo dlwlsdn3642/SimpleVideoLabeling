@@ -68,5 +68,20 @@ describe('rectAtFrame', () => {
     };
     expect(rectAtFrame(hidden, 4)).toBeNull();
   });
+
+  it('interpolates once absence is cleared', () => {
+    const t: Track = {
+      track_id: '1',
+      class_id: 0,
+      keyframes: [
+        { frame: 0, bbox_xywh: [0, 0, 10, 10] },
+        { frame: 5, bbox_xywh: [0, 0, 10, 10], absent: true },
+        { frame: 10, bbox_xywh: [10, 10, 10, 10] },
+      ],
+    };
+    expect(rectAtFrame(t, 6)).toBeNull();
+    t.keyframes[1].absent = false;
+    expect(rectAtFrame(t, 6)).toEqual({ x: 2, y: 2, w: 10, h: 10 });
+  });
 });
 
