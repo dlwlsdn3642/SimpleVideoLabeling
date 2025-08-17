@@ -33,13 +33,15 @@ export default function App() {
       const files = input.files;
       if (!files || !files.length) return;
       const file = files[0] as File & { path?: string; webkitRelativePath?: string };
-      const fullPath = file.path ?? file.webkitRelativePath ?? "";
-      const folder = fullPath.split(/[/\\]/).slice(0, -1).join("/");
-      if (folder) {
-        const t = pm.current.addTask(currentProject.id, name, folder);
-        refresh();
-        setCurrentTask(t);
-      }
+      if (!file.path) return;
+      const relPath = file.webkitRelativePath ?? "";
+      const folder = file.path
+        .slice(0, file.path.length - relPath.length)
+        .replace(/\\/g, "/")
+        .replace(/\/$/, "");
+      const t = pm.current.addTask(currentProject.id, name, folder);
+      refresh();
+      setCurrentTask(t);
     };
     input.click();
   };
