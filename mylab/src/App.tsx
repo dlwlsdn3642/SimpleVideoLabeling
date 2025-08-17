@@ -143,7 +143,7 @@ export default function App() {
         <div className={appStyles.content}>
           {currentTask ? (
             <ErrorBoundary>
-            <div className="fade-in">
+            <div className="fade-in" style={{ height: "100%" }}>
             <SequenceLabeler
               framesBaseUrl={`${currentTask.workFolder}/frames`}
               indexUrl={`${currentTask.workFolder}/index.json`}
