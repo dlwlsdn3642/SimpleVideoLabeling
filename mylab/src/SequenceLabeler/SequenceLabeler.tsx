@@ -120,6 +120,7 @@ const SequenceLabeler: React.FC<{
     });
   }, []);
   const [interpolate, setInterpolate] = useState(true);
+  const [showGhosts, setShowGhosts] = useState(true);
 
   // selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -178,6 +179,7 @@ const SequenceLabeler: React.FC<{
     kf_prev: ",",
     kf_next: ".",
     toggle_interpolate: "i",
+    toggle_ghosts: "g",
     toggle_presence: "n",
     copy_tracks: "Ctrl+c",
     paste_tracks: "Ctrl+v",
@@ -260,6 +262,7 @@ const SequenceLabeler: React.FC<{
         if (s.tracks) setTracks(s.tracks);
         if (typeof s.frame === "number") setFrame(s.frame);
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
+        if (typeof s.showGhosts === "boolean") setShowGhosts(s.showGhosts);
       } catch (err) {
         console.error(err);
       }
@@ -358,11 +361,12 @@ const SequenceLabeler: React.FC<{
           tracks,
           frame,
           interpolate,
+          showGhosts,
         }),
       );
     }, 300);
     return () => clearTimeout(t);
-  }, [meta, labelSet, tracks, frame, interpolate, storagePrefix]);
+  }, [meta, labelSet, tracks, frame, interpolate, showGhosts, storagePrefix]);
 
   // observe timeline width
   useEffect(() => {
@@ -512,14 +516,16 @@ const SequenceLabeler: React.FC<{
         ctx.restore();
       };
 
-      // ghosts
-      for (const t of tracks) {
-        if (t.hidden) continue;
-        const color = labelSet.colors[t.class_id] || "#66d9ef";
-        const prev = rectAtFrame(t, frame - 1, interpolate);
-        if (prev) drawRect(prev, color, ghostAlpha, true);
-        const next = rectAtFrame(t, frame + 1, interpolate);
-        if (next) drawRect(next, color, ghostAlpha, true);
+      // ghosts (previous/next frame preview)
+      if (showGhosts && ghostAlpha > 0) {
+        for (const t of tracks) {
+          if (t.hidden) continue;
+          const color = labelSet.colors[t.class_id] || "#66d9ef";
+          const prev = rectAtFrame(t, frame - 1, interpolate);
+          if (prev) drawRect(prev, color, ghostAlpha, true);
+          const next = rectAtFrame(t, frame + 1, interpolate);
+          if (next) drawRect(next, color, ghostAlpha, true);
+        }
       }
 
       // current rects
@@ -578,6 +584,7 @@ const SequenceLabeler: React.FC<{
     labelSet.classes,
     labelSet.colors,
     interpolate,
+    showGhosts,
     ghostAlpha,
     meta,
     getImage,
@@ -631,6 +638,7 @@ const SequenceLabeler: React.FC<{
       else if (match("kf_prev")) gotoPrevKeyframe();
       else if (match("kf_next")) gotoNextKeyframe();
       else if (match("toggle_interpolate")) setInterpolate((v) => !v);
+      else if (match("toggle_ghosts")) setShowGhosts((v) => !v);
       else if (match("toggle_presence")) togglePresenceAtCurrent();
       else if (match("copy_tracks")) copySelectedTracks();
       else if (match("paste_tracks")) pasteTracks();
@@ -1250,6 +1258,25 @@ const SequenceLabeler: React.FC<{
             minWidth: MIN_SIDE_WIDTH,
           }}
         >
+          {/* View options */}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={showGhosts}
+                onChange={(e) => setShowGhosts(e.target.checked)}
+              />
+              <span>Show ghosts (prev/next)</span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={interpolate}
+                onChange={(e) => setInterpolate(e.target.checked)}
+              />
+              <span>Interpolate</span>
+            </label>
+          </div>
           {/* Label set */}
           <div style={{ marginBottom: 10 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Label Set</div>
@@ -1441,7 +1468,7 @@ const SequenceLabeler: React.FC<{
       >
         Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
         KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
-        Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
+        View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
       </div>
 
       {/* Shortcuts Modal */}
