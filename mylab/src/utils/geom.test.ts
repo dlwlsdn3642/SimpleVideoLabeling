@@ -26,20 +26,18 @@ describe('isVisibleAt', () => {
   const track: Track = {
     track_id: '1',
     class_id: 0,
-    keyframes: [],
-    presence_toggles: [5, 10],
+    keyframes: [
+      { frame: 0, bbox_xywh: [0, 0, 0, 0] },
+      { frame: 5, bbox_xywh: [0, 0, 0, 0], absent: true },
+      { frame: 10, bbox_xywh: [0, 0, 0, 0] },
+    ],
   };
 
-  it('is visible before any toggles', () => {
+  it('is visible at keyframes and hidden after absence markers', () => {
     expect(isVisibleAt(track, 0)).toBe(true);
-  });
-
-  it('is hidden between toggles', () => {
-    expect(isVisibleAt(track, 5)).toBe(false);
+    expect(isVisibleAt(track, 5)).toBe(true);
+    expect(isVisibleAt(track, 6)).toBe(false);
     expect(isVisibleAt(track, 7)).toBe(false);
-  });
-
-  it('is visible again after second toggle', () => {
     expect(isVisibleAt(track, 10)).toBe(true);
     expect(isVisibleAt(track, 12)).toBe(true);
   });
@@ -53,7 +51,6 @@ describe('rectAtFrame', () => {
       { frame: 0, bbox_xywh: [0, 0, 10, 10] },
       { frame: 10, bbox_xywh: [10, 10, 10, 10] },
     ],
-    presence_toggles: [],
   };
 
   it('interpolates between keyframes', () => {
@@ -62,7 +59,13 @@ describe('rectAtFrame', () => {
   });
 
   it('returns null when track is hidden', () => {
-    const hidden: Track = { ...baseTrack, presence_toggles: [3] };
+    const hidden: Track = {
+      ...baseTrack,
+      keyframes: [
+        { ...baseTrack.keyframes[0], absent: true },
+        baseTrack.keyframes[1],
+      ],
+    };
     expect(rectAtFrame(hidden, 4)).toBeNull();
   });
 });

@@ -24,11 +24,12 @@ export function findKFIndexAtOrBefore(kfs: Keyframe[], f: number): number {
   return ans;
 }
 export function isVisibleAt(track: Track, f: number): boolean {
-  let cnt = 0;
-  for (let i = 0; i < track.presence_toggles.length; i++) {
-    if (track.presence_toggles[i] <= f) cnt++; else break;
-  }
-  return (cnt % 2) === 0; // even -> visible
+  const kfs = track.keyframes;
+  const idx = findKFIndexAtOrBefore(kfs, f);
+  if (idx === -1) return false;
+  const kf = kfs[idx];
+  if (kf.absent && f > kf.frame) return false;
+  return true;
 }
 export function rectAtFrame(track: Track, f: number, interpolate = true): RectPX | null {
   if (!isVisibleAt(track, f)) return null;
