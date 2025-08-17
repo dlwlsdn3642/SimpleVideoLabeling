@@ -60,7 +60,7 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
           <button onClick={() => setTracks(ts => ts.filter(x => x.track_id !== t.track_id), true)}>Delete</button>
         </div>
         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.8 }}>
-          Presence toggles: {t.presence_toggles.join(", ") || "(none)"}
+          Absent after: {t.keyframes.filter(k => k.absent).map(k => k.frame).join(", ") || "(none)"}
         </div>
       </div>
     );

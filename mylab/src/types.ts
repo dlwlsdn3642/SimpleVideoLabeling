@@ -13,15 +13,15 @@ export type RectPX = { x: number; y: number; w: number; h: number };
 export type Keyframe = {
   frame: number; // 0-based
   bbox_xywh: [number, number, number, number]; // px
+  absent?: boolean; // if true, hidden after this frame until next keyframe
 };
 
 export type Track = {
   track_id: string;
   class_id: number;
   name?: string;
-  keyframes: Keyframe[];       // sorted asc
-  presence_toggles: number[];  // sorted asc; initial visible=true, toggles flip
-  hidden?: boolean;            // UI on/off
+  keyframes: Keyframe[]; // sorted asc
+  hidden?: boolean;      // UI on/off
 };
 
 export type LabelSet = {

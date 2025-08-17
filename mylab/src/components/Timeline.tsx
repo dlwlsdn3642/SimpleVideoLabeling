@@ -119,13 +119,12 @@ const Timeline: React.FC<Props> = ({
         const y = margin + rowHeight * idx;
         const color = labelSet.colors[t.class_id] || "#4ea3ff";
         const segs: Array<[number, number]> = [];
-        let start = 0;
-        let visible = true;
-        const toggles = [...t.presence_toggles, total];
-        for (const f of toggles) {
-          if (visible) segs.push([start, f]);
-          start = f;
-          visible = !visible;
+        const kfs = t.keyframes;
+        for (let i = 0; i < kfs.length; i++) {
+          const curr = kfs[i];
+          const nextF = i + 1 < kfs.length ? kfs[i + 1].frame : total;
+          const end = curr.absent ? curr.frame + 1 : nextF;
+          if (end > curr.frame) segs.push([curr.frame, end]);
         }
         return (
           <g key={t.track_id}>

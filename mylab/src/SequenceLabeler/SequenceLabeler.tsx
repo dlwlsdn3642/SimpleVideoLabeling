@@ -730,7 +730,7 @@ const SequenceLabeler: React.FC<{
       frame: f,
       bbox_xywh: [r.x, r.y, r.w, r.h] as [number, number, number, number],
     };
-    if (idx >= 0) kfs[idx] = kf;
+    if (idx >= 0) kfs[idx] = { ...kf, absent: kfs[idx].absent };
     else {
       kfs.push(kf);
       kfs.sort((a, b) => a.frame - b.frame);
@@ -927,7 +927,6 @@ const SequenceLabeler: React.FC<{
         class_id: curClass,
         name: `T${tracks.length + 1}`,
         keyframes: [{ frame, bbox_xywh: [rect.x, rect.y, rect.w, rect.h] }],
-        presence_toggles: [],
       };
       applyTracks((ts) => [...ts, t], true);
       setSelectedIds(new Set([t.track_id]));
@@ -1004,33 +1003,12 @@ const SequenceLabeler: React.FC<{
       (ts) =>
         ts.map((t) => {
           if (!selectedIds.has(t.track_id)) return t;
-          const arr = [...t.presence_toggles];
-          const kfs = t.keyframes;
+          const kfs = [...t.keyframes];
           const idx = findKFIndexAtOrBefore(kfs, frame);
-          const toggle = (f: number) => {
-            const j = arr.indexOf(f);
-            if (j >= 0) arr.splice(j, 1);
-            else arr.push(f);
-          };
-          if (idx >= 0 && kfs[idx].frame === frame) {
-            toggle(frame);
-            const nextKF = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
-            if (nextKF !== null) {
-              [nextKF, nextKF + 1].forEach((f) => {
-                if (f !== frame) {
-                  const j = arr.indexOf(f);
-                  if (j >= 0) arr.splice(j, 1);
-                }
-              });
-            }
-          } else {
-            const prev = idx >= 0 ? kfs[idx].frame : null;
-            const next = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
-            if (prev !== null) toggle(prev);
-            if (next !== null) toggle(next);
-          }
-          arr.sort((a, b) => a - b);
-          return { ...t, presence_toggles: arr };
+          if (idx < 0) return t;
+          const kf = kfs[idx];
+          kfs[idx] = { ...kf, absent: !kf.absent };
+          return { ...t, keyframes: kfs };
         }),
       true,
     );
@@ -1058,8 +1036,8 @@ const SequenceLabeler: React.FC<{
         keyframes: t.keyframes.map((k) => ({
           frame: k.frame,
           bbox_xywh: k.bbox_xywh,
+          ...(k.absent ? { absent: true } : {}),
         })),
-        presence_toggles: t.presence_toggles,
       })),
     };
     const blob = new Blob([JSON.stringify(out, null, 2)], {
