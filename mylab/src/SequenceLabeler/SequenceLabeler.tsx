@@ -562,7 +562,7 @@ const SequenceLabeler: React.FC<{
       const drawW = meta.width * scale;
       const drawH = meta.height * scale;
       const offsetX = (rect.width - drawW) / 2;
-      const offsetY = Math.max((rect.height - drawH) / 2, 0);
+      const offsetY = 0;
       ctx.drawImage(bmp, offsetX, offsetY, drawW, drawH);
 
       const drawRect = (
@@ -796,7 +796,7 @@ const SequenceLabeler: React.FC<{
   const toImgCoords = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = (ev.target as HTMLCanvasElement).getBoundingClientRect();
     const offsetX = (rect.width - meta!.width * scale) / 2;
-    const offsetY = Math.max((rect.height - meta!.height * scale) / 2, 0);
+    const offsetY = 0;
     return {
       mx: (ev.clientX - rect.left - offsetX) / scale,
       my: (ev.clientY - rect.top - offsetY) / scale,
