@@ -740,6 +740,15 @@ const SequenceLabeler: React.FC<{
       };
       if (idx >= 0 && kfs[idx].frame === frame) {
         toggle(frame + 1);
+        const nextKF = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
+        if (nextKF !== null) {
+          [nextKF, nextKF + 1].forEach(f => {
+            if (f !== frame + 1) {
+              const j = arr.indexOf(f);
+              if (j >= 0) arr.splice(j, 1);
+            }
+          });
+        }
       } else {
         const prev = idx >= 0 ? kfs[idx].frame : null;
         const next = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
