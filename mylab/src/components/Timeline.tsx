@@ -49,6 +49,8 @@ const Timeline: React.FC<Props> = ({
     onSeek(f);
   };
   const onPointerDown = (ev: React.PointerEvent<SVGSVGElement>) => {
+    ev.preventDefault();
+    document.body.style.userSelect = "none";
     draggingRef.current = true;
     (ev.target as Element).setPointerCapture?.(ev.pointerId);
     seekFromEvent(ev);
@@ -60,6 +62,7 @@ const Timeline: React.FC<Props> = ({
   const onPointerUp = (ev: React.PointerEvent<SVGSVGElement>) => {
     draggingRef.current = false;
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
+    document.body.style.userSelect = "";
   };
   const onWheel = (ev: React.WheelEvent<SVGSVGElement>) => {
     ev.preventDefault();
@@ -74,13 +77,14 @@ const Timeline: React.FC<Props> = ({
     <svg
       width={width}
       height={height}
-      style={{ display: "block", width: "100%" }}
+      style={{ display: "block", width: "100%", userSelect: "none" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onWheel={onWheel}
       onDoubleClick={(ev) => {
         ev.preventDefault();
+        document.getSelection()?.removeAllRanges();
         const { f, trackIdx } = getPosFromEvent(ev);
         if (trackIdx >= 0 && trackIdx < tracks.length) {
           onAddKeyframe(tracks[trackIdx].track_id, f);
@@ -126,14 +130,14 @@ const Timeline: React.FC<Props> = ({
         return (
           <g key={t.track_id}>
             {segs.map(([s, e], i) => (
-              <rect
+              <line
                 key={`seg-${i}`}
-                x={scaleX(s)}
-                y={y}
-                width={(e - s) * step}
-                height={rowHeight}
-                fill={color}
-                opacity={0.3}
+                x1={centerX(s)}
+                x2={centerX(e - 1)}
+                y1={y + rowHeight / 2}
+                y2={y + rowHeight / 2}
+                stroke={color}
+                strokeWidth={2}
               />
             ))}
             {t.keyframes.map((k) => (
