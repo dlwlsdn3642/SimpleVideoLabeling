@@ -415,8 +415,11 @@ const SequenceLabeler: React.FC<{
     const el = canvasWrapRef.current.parentElement ?? containerRef.current;
     if (!el) return;
     const update = () => {
-      const width = el.getBoundingClientRect().width;
-      const height = canvasWrapRef.current!.getBoundingClientRect().height;
+      const elRect = el.getBoundingClientRect();
+      const timelineH =
+        timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
+      const width = elRect.width;
+      const height = elRect.height - timelineH;
       const prev = lastSizeRef.current;
       if (width === prev.width && height === prev.height) return;
       prev.width = width;
