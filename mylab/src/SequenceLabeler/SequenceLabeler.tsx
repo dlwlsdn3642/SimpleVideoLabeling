@@ -46,6 +46,8 @@ const SequenceLabeler: React.FC<{
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
   const [fitWidth, setFitWidth] = useState(false);
+  const fitWidthRef = useRef(fitWidth);
+  useEffect(() => { fitWidthRef.current = fitWidth; }, [fitWidth]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
@@ -100,7 +102,7 @@ const SequenceLabeler: React.FC<{
   // editing
   const [dragHandle, setDragHandle] = useState<Handle>("none");
   const [hoverHandle, setHoverHandle] = useState<Handle>("none");
-  const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean }>({ mx: 0, my: 0 });
+  const dragRef = useRef<{ mx: number; my: number; origRects?: Map<string, RectPX>; creating?: boolean; tempRect?: RectPX; multi?: boolean; historyPushed?: boolean }>({ mx: 0, my: 0 });
   const [draftRect, setDraftRect] = useState<RectPX | null>(null);
   const handleCursor = (h: Handle, dragging = false): string => {
     if (dragging && h === "move") return "grabbing";
@@ -195,9 +197,9 @@ const SequenceLabeler: React.FC<{
       const wrap = canvasWrapRef.current;
       const width = wrap.parentElement?.getBoundingClientRect().width ?? wrap.getBoundingClientRect().width;
       const max = width / m.width;
-      setScale(fitWidth ? max : Math.min(1, max));
+      setScale(fitWidthRef.current ? max : Math.min(1, max));
     }, 0);
-  }, [fitWidth]);
+  }, []);
 
   /** ===== Restore & Load ===== */
   useEffect(() => {
@@ -268,7 +270,7 @@ const SequenceLabeler: React.FC<{
       }
     })();
     return () => { aborted = true; };
-  }, [indexUrl, localFiles, storagePrefix, fitWidth, loadFromDir, onFolderImported]);
+  }, [indexUrl, localFiles, storagePrefix, loadFromDir, onFolderImported]);
 
   useEffect(() => {
     const raw = localStorage.getItem("sequence_label_sets_v1");
@@ -573,11 +575,11 @@ const SequenceLabeler: React.FC<{
         const rr = rectAtFrame(st, frame, interpolate);
         if (rr) origRects.set(st.track_id, rr);
       }
-      dragRef.current = { mx, my, origRects, creating: false, tempRect: undefined, multi };
+      dragRef.current = { mx, my, origRects, creating: false, tempRect: undefined, multi, historyPushed: false };
     } else {
       // 새 트랙 생성 드래그 시작
       const temp: RectPX = { x: mx, y: my, w: 1, h: 1 };
-      dragRef.current = { mx, my, creating: true, tempRect: temp, multi: false };
+      dragRef.current = { mx, my, creating: true, tempRect: temp, multi: false, historyPushed: false };
       setDraftRect(temp);
       setDragHandle("se");
     }
@@ -611,8 +613,15 @@ const SequenceLabeler: React.FC<{
     }
 
     // 기존 편집: origRects가 없으면 안전하게 종료
-    const { origRects, multi } = dragRef.current;
+    const { origRects, multi, historyPushed } = dragRef.current;
     if (!origRects || origRects.size === 0) return;
+
+    if (!historyPushed) {
+      historyRef.current.push(JSON.parse(JSON.stringify(tracks)));
+      if (historyRef.current.length > 100) historyRef.current.shift();
+      futureRef.current = [];
+      dragRef.current.historyPushed = true;
+    }
 
     applyTracks(ts => {
       const map = new Map(ts.map(t => [t.track_id, t]));
@@ -734,7 +743,7 @@ const SequenceLabeler: React.FC<{
       } else {
         const prev = idx >= 0 ? kfs[idx].frame : null;
         const next = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
-        if (prev !== null) toggle(prev + 1);
+        if (prev !== null) toggle(prev);
         if (next !== null) toggle(next);
       }
       arr.sort((a, b) => a - b);
