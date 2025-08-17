@@ -43,14 +43,6 @@ const DEFAULT_COLORS = [
   "#fabebe",
 ];
 
-const frameToTimecode = (f: number, fps: number): string => {
-  const total = f / fps;
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = Math.floor(total % 60);
-  return `${pad(h, 2)}:${pad(m, 2)}:${pad(s, 2)}`;
-};
-
 const SequenceLabeler: React.FC<{
   framesBaseUrl: string;
   indexUrl: string;
@@ -76,22 +68,11 @@ const SequenceLabeler: React.FC<{
   const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
-  const [fitWidth, setFitWidth] = useState(false);
-  const fitWidthRef = useRef(fitWidth);
-  useEffect(() => {
-    fitWidthRef.current = fitWidth;
-  }, [fitWidth]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
-  const lastSizeRef = useRef<{ width: number; height: number; fitWidth: boolean }>(
-    {
-      width: 0,
-      height: 0,
-      fitWidth: false,
-    },
-  );
-  const [scaleMax, setScaleMax] = useState(3);
+  const workAreaRef = useRef<HTMLDivElement | null>(null);
+  const [sideWidth, setSideWidth] = useState(240);
+  const MIN_SIDE_WIDTH = 160;
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -257,15 +238,6 @@ const SequenceLabeler: React.FC<{
     setFiles([]);
     cacheRef.current.clear();
     setFrame(0);
-    setTimeout(() => {
-      if (!canvasWrapRef.current) return;
-      const wrap = canvasWrapRef.current;
-      const width =
-        wrap.parentElement?.getBoundingClientRect().width ??
-        wrap.getBoundingClientRect().width;
-      const max = width / m.width;
-      setScale(fitWidthRef.current ? max : Math.min(1, max));
-    }, 0);
   }, []);
 
   /** ===== Restore & Load ===== */
@@ -341,15 +313,6 @@ const SequenceLabeler: React.FC<{
             ),
           );
         }
-        setTimeout(() => {
-          if (!canvasWrapRef.current || !m) return;
-          const wrap = canvasWrapRef.current;
-          const width =
-            wrap.parentElement?.getBoundingClientRect().width ??
-            wrap.getBoundingClientRect().width;
-          const max = width / m.width;
-          setScale(fitWidth ? max : Math.min(1, max));
-        }, 0);
       } catch (err) {
         console.error(err);
         setNeedsImport(true);
@@ -412,40 +375,30 @@ const SequenceLabeler: React.FC<{
     return () => ro.disconnect();
   }, []);
 
-  // observe canvas container size to enforce scale limits
+  // adjust side panel width to fill canvas height
   useEffect(() => {
-    if (!meta || !containerRef.current) return;
-    const el = containerRef.current;
+    if (!meta || !workAreaRef.current) return;
+    const el = workAreaRef.current;
     const update = () => {
-      const elRect = el.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
       const timelineH =
         timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
-      const width = Math.round(elRect.width);
-      const height = Math.round(elRect.height - timelineH);
-      const prev = lastSizeRef.current;
-      if (
-        width === prev.width &&
-        height === prev.height &&
-        fitWidth === prev.fitWidth
-      )
-        return;
-      prev.width = width;
-      prev.height = height;
-      prev.fitWidth = fitWidth;
-      const fitW = Math.max(0.1, Math.min(3, width / meta.width));
-      const max = Math.max(
-        0.1,
-        Math.min(3, width / meta.width, height / meta.height),
-      );
-      setScaleMax(fitWidth ? fitW : max);
-      if (fitWidth) setScale(fitW);
-      else setScale((s) => Math.min(s, max));
+      const totalW = rect.width;
+      const availH = rect.height - timelineH;
+      if (availH <= 0 || totalW <= 0) return;
+      const desiredCanvasW = availH * (meta.width / meta.height);
+      let newSide = totalW - desiredCanvasW;
+      if (newSide < MIN_SIDE_WIDTH) newSide = MIN_SIDE_WIDTH;
+      if (newSide > totalW) newSide = totalW;
+      const canvasW = totalW - newSide;
+      setSideWidth(newSide);
+      setScale(canvasW / meta.width);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [meta, fitWidth]);
+  }, [meta]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(
@@ -1145,7 +1098,6 @@ const SequenceLabeler: React.FC<{
 
   return (
     <div
-      ref={containerRef}
       style={{
         display: "grid",
         gridTemplateRows: "auto 1fr auto auto",
@@ -1192,30 +1144,6 @@ const SequenceLabeler: React.FC<{
         </span>
 
         <span style={{ marginLeft: 16 }}>
-          Scale:{" "}
-          <input
-            type="range"
-            min={0.1}
-            max={scaleMax}
-            step={0.05}
-            value={scale}
-            onChange={(e) =>
-              setScale(Math.min(parseFloat(e.target.value), scaleMax))
-            }
-            disabled={fitWidth}
-          />
-          <span style={{ marginLeft: 6 }}>{(scale * 100).toFixed(0)}%</span>
-          <label style={{ marginLeft: 8 }}>
-            Fit Width{" "}
-            <input
-              type="checkbox"
-              checked={fitWidth}
-              onChange={(e) => setFitWidth(e.target.checked)}
-            />
-          </label>
-        </span>
-
-        <span style={{ marginLeft: 16 }}>
           Interp{" "}
           <input
             type="checkbox"
@@ -1242,21 +1170,71 @@ const SequenceLabeler: React.FC<{
         <button onClick={() => setKeyUIOpen(true)}>Shortcuts</button>
       </div>
 
-      {/* Middle: Left panel + Canvas */}
+      {/* Middle: Canvas + Right panel */}
       <div
+        ref={workAreaRef}
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(240px, 25vw) 1fr",
+          gridTemplateColumns: `1fr ${sideWidth}px`,
           minHeight: 0,
         }}
       >
-        {/* Left panel */}
+        {/* Canvas + Timeline */}
         <div
           style={{
-            borderRight: "1px solid #222",
+            display: "grid",
+            gridTemplateRows: "1fr auto",
+            background: "#111",
+            minWidth: 0,
+          }}
+        >
+          <div
+            ref={canvasWrapRef}
+            style={{ display: "grid", placeItems: "center", width: "100%" }}
+          >
+            {!meta ? (
+              <div style={{ padding: 20 }}>Loading index…</div>
+            ) : (
+              <canvas
+                ref={canvasRef}
+                style={{
+                  border: "1px solid #333",
+                  imageRendering: "pixelated",
+                  cursor: handleCursor(
+                    dragHandle !== "none" ? dragHandle : hoverHandle,
+                    dragHandle !== "none",
+                  ),
+                }}
+                onMouseDown={onMouseDown}
+                onMouseMove={onMouseMove}
+                onMouseUp={onMouseUp}
+              />
+            )}
+          </div>
+          <div
+            ref={timelineWrapRef}
+            style={{ padding: "6px 12px", borderTop: "1px solid #222" }}
+          >
+            <Timeline
+              total={totalFrames || 1}
+              frame={frame}
+              onSeek={scheduleSeek}
+              tracks={tracks}
+              labelSet={labelSet}
+              onDeleteKeyframe={deleteKeyframe}
+              onAddKeyframe={addKeyframe}
+              width={timelineWidth}
+            />
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div
+          style={{
+            borderLeft: "1px solid #222",
             padding: 8,
             overflow: "auto",
-            minWidth: 240,
+            minWidth: MIN_SIDE_WIDTH,
           }}
         >
           {/* Label set */}
@@ -1434,112 +1412,6 @@ const SequenceLabeler: React.FC<{
               selectedIds={selectedIds}
               setSelectedIds={setSelectedIds}
               setTracks={applyTracks}
-            />
-          </div>
-        </div>
-
-        {/* Canvas + Timeline */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateRows: "1fr auto",
-            background: "#111",
-            minWidth: 0,
-          }}
-        >
-          <div
-            ref={canvasWrapRef}
-            style={{ display: "grid", placeItems: "center", width: "100%" }}
-          >
-            {!meta ? (
-              <div style={{ padding: 20 }}>Loading index…</div>
-            ) : (
-              <canvas
-                ref={canvasRef}
-                style={{
-                  border: "1px solid #333",
-                  imageRendering: "pixelated",
-                  cursor: handleCursor(
-                    dragHandle !== "none" ? dragHandle : hoverHandle,
-                    dragHandle !== "none",
-                  ),
-                }}
-                onMouseDown={onMouseDown}
-                onMouseMove={onMouseMove}
-                onMouseUp={onMouseUp}
-              />
-            )}
-          </div>
-          <div
-            ref={timelineWrapRef}
-            style={{ padding: "6px 12px", borderTop: "1px solid #222" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                gap: 6,
-                marginBottom: 4,
-                flexWrap: "wrap",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                <span>Frame</span>
-                <input
-                  type="number"
-                  value={frame + 1}
-                  onChange={(e) =>
-                    setFrame(
-                      clamp(
-                        (parseInt(e.target.value) || 1) - 1,
-                        0,
-                        totalFrames - 1,
-                      ),
-                    )
-                  }
-                  style={{ width: 60 }}
-                />
-                <span>{frameToTimecode(frame, meta?.fps || 30)}</span>
-              </div>
-              <button
-                onClick={() =>
-                  setFrame((f) => clamp(f - 1, 0, totalFrames - 1))
-                }
-              >
-                Prev
-              </button>
-              <button
-                onClick={() =>
-                  setFrame((f) => clamp(f + 1, 0, totalFrames - 1))
-                }
-              >
-                Next
-              </button>
-              <button
-                onClick={gotoPrevKeyframe}
-                disabled={!oneSelected || oneSelected.keyframes.length === 0}
-              >
-                Prev KF
-              </button>
-              <button
-                onClick={gotoNextKeyframe}
-                disabled={!oneSelected || oneSelected.keyframes.length === 0}
-              >
-                Next KF
-              </button>
-              <button onClick={addKeyframeAtCurrent} disabled={!oneSelected}>
-                Add KF
-              </button>
-            </div>
-            <Timeline
-              total={totalFrames || 1}
-              frame={frame}
-              onSeek={scheduleSeek}
-              tracks={tracks}
-              labelSet={labelSet}
-              onDeleteKeyframe={deleteKeyframe}
-              onAddKeyframe={addKeyframe}
-              width={timelineWidth}
             />
           </div>
         </div>
