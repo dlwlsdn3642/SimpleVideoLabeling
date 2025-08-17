@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
 import { Timeline, TrackPanel, ShortcutModal } from "../components";
@@ -63,10 +63,10 @@ const SequenceLabeler: React.FC<{
   const [tracks, setTracks] = useState<Track[]>([]);
   const historyRef = useRef<Track[][]>([]);
   const futureRef = useRef<Track[][]>([]);
-  const applyTracks = useCallback((updater: (ts: Track[]) => Track[]) => {
+  const applyTracks = useCallback((updater: (ts: Track[]) => Track[], record = false) => {
     setTracks(ts => {
       const next = updater(ts);
-      if (next !== ts) {
+      if (record && next !== ts) {
         historyRef.current.push(JSON.parse(JSON.stringify(ts)));
         if (historyRef.current.length > 100) historyRef.current.shift();
         futureRef.current = [];
@@ -192,7 +192,8 @@ const SequenceLabeler: React.FC<{
     setFrame(0);
     setTimeout(() => {
       if (!canvasWrapRef.current) return;
-      const { width } = canvasWrapRef.current.getBoundingClientRect();
+      const wrap = canvasWrapRef.current;
+      const width = wrap.parentElement?.getBoundingClientRect().width ?? wrap.getBoundingClientRect().width;
       const max = width / m.width;
       setScale(fitWidth ? max : Math.min(1, max));
     }, 0);
@@ -256,7 +257,8 @@ const SequenceLabeler: React.FC<{
         }
         setTimeout(() => {
           if (!canvasWrapRef.current || !m) return;
-          const { width } = canvasWrapRef.current.getBoundingClientRect();
+          const wrap = canvasWrapRef.current;
+          const width = wrap.parentElement?.getBoundingClientRect().width ?? wrap.getBoundingClientRect().width;
           const max = width / m.width;
           setScale(fitWidth ? max : Math.min(1, max));
         }, 0);
@@ -310,9 +312,10 @@ const SequenceLabeler: React.FC<{
     if (!meta || !canvasWrapRef.current) return;
     const el = canvasWrapRef.current;
     const update = () => {
-      const { width, height } = el.getBoundingClientRect();
-      const fitW = Math.max(0.1, Math.min(3, width / meta.width));
-      const max = Math.max(0.1, Math.min(3, width / meta.width, height / meta.height));
+      const parentWidth = el.parentElement?.getBoundingClientRect().width ?? el.getBoundingClientRect().width;
+      const { height } = el.getBoundingClientRect();
+      const fitW = Math.max(0.1, Math.min(3, parentWidth / meta.width));
+      const max = Math.max(0.1, Math.min(3, parentWidth / meta.width, height / meta.height));
       setScaleMax(fitWidth ? fitW : max);
       if (fitWidth) setScale(fitW); else setScale(s => Math.min(s, max));
     };
@@ -672,7 +675,7 @@ const SequenceLabeler: React.FC<{
         keyframes: [{ frame, bbox_xywh: [rect.x, rect.y, rect.w, rect.h] }],
         presence_toggles: []
       };
-      applyTracks(ts => [...ts, t]);
+      applyTracks(ts => [...ts, t], true);
       setSelectedIds(new Set([t.track_id]));
     }
     setDragHandle("none");
@@ -686,7 +689,7 @@ const SequenceLabeler: React.FC<{
     if (!oneSelected) return;
     const r = rectAtFrame(oneSelected, frame, interpolate);
     if (!r) return;
-    applyTracks(ts => ts.map(t => t.track_id === oneSelected.track_id ? ensureKFAt(t, frame, r) : t));
+    applyTracks(ts => ts.map(t => t.track_id === oneSelected.track_id ? ensureKFAt(t, frame, r) : t), true);
   }
   function deleteKeyframeAtCurrent() {
     if (!oneSelected) return;
@@ -694,13 +697,13 @@ const SequenceLabeler: React.FC<{
       if (t.track_id !== oneSelected.track_id) return t;
       const kfs = t.keyframes.filter(k => k.frame !== frame);
       return { ...t, keyframes: kfs };
-    }));
+    }), true);
   }
   function gotoPrevKeyframe() {
     if (!oneSelected) return;
     const kfs = oneSelected.keyframes;
-    const idx = findKFIndexAtOrBefore(kfs, frame);
-    const prev = (idx > 0) ? kfs[idx - 1].frame : (idx === 0 ? kfs[0].frame : 0);
+    const idx = findKFIndexAtOrBefore(kfs, frame - 1);
+    const prev = idx >= 0 ? kfs[idx].frame : kfs[0].frame;
     setFrame(prev);
   }
   function gotoNextKeyframe() {
@@ -720,10 +723,23 @@ const SequenceLabeler: React.FC<{
     applyTracks(ts => ts.map(t => {
       if (!selectedIds.has(t.track_id)) return t;
       const arr = [...t.presence_toggles];
-      const i = arr.indexOf(frame);
-      if (i >= 0) arr.splice(i, 1); else { arr.push(frame); arr.sort((a, b) => a - b); }
+      const kfs = t.keyframes;
+      const idx = findKFIndexAtOrBefore(kfs, frame);
+      const toggle = (f: number) => {
+        const j = arr.indexOf(f);
+        if (j >= 0) arr.splice(j, 1); else arr.push(f);
+      };
+      if (idx >= 0 && kfs[idx].frame === frame) {
+        toggle(frame + 1);
+      } else {
+        const prev = idx >= 0 ? kfs[idx].frame : null;
+        const next = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
+        if (prev !== null) toggle(prev + 1);
+        if (next !== null) toggle(next);
+      }
+      arr.sort((a, b) => a - b);
       return { ...t, presence_toggles: arr };
-    }));
+    }), true);
   }
 
   /** ===== Export ===== */
@@ -897,7 +913,15 @@ const SequenceLabeler: React.FC<{
                   <input
                     type="color"
                     value={labelSet.colors[i]}
-                    onChange={e => setLabelSet(s => ({ ...s, colors: s.colors.map((col, idx) => idx === i ? e.target.value : col) }))}
+                    onChange={e => {
+                      const val = e.target.value;
+                      startTransition(() => {
+                        setLabelSet(s => ({
+                          ...s,
+                          colors: s.colors.map((col, idx) => idx === i ? val : col)
+                        }));
+                      });
+                    }}
                   />
                   <button onClick={() => setLabelSet(s => ({
                     ...s,
@@ -921,7 +945,7 @@ const SequenceLabeler: React.FC<{
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={copySelectedTracks} disabled={!selectedTracks.length}>Copy</button>
                 <button onClick={pasteTracks} disabled={!clipboardRef.current?.length}>Paste</button>
-                <button onClick={() => { applyTracks(() => []); setSelectedIds(new Set()); }}>Clear</button>
+                <button onClick={() => { applyTracks(() => [], true); setSelectedIds(new Set()); }}>Clear</button>
               </div>
             </div>
 
@@ -937,7 +961,7 @@ const SequenceLabeler: React.FC<{
 
         {/* Canvas + Timeline */}
         <div style={{ display: "grid", gridTemplateRows: "1fr auto", background: "#111", minWidth: 0 }}>
-          <div ref={canvasWrapRef} style={{ display: "grid", placeItems: "center" }}>
+          <div ref={canvasWrapRef} style={{ display: "grid", placeItems: "center", width: "100%" }}>
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
@@ -1004,7 +1028,7 @@ const SequenceLabeler: React.FC<{
       track_id: `t_${uuid()}`,
       name: (t.name ?? t.track_id) + " (copy)"
     }));
-    applyTracks(ts => [...ts, ...pasted]);
+    applyTracks(ts => [...ts, ...pasted], true);
     setSelectedIds(new Set(pasted.map(t => t.track_id)));
   }
 };

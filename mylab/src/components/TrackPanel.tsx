@@ -6,7 +6,7 @@ type Props = {
   tracks: Track[];
   selectedIds: Set<string>;
   setSelectedIds: (s: Set<string>) => void;
-  setTracks: (updater: (ts: Track[]) => Track[]) => void;
+  setTracks: (updater: (ts: Track[]) => Track[], record?: boolean) => void;
 };
 
 const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelectedIds, setTracks }) => {
@@ -49,15 +49,15 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <select
             value={t.class_id}
-            onChange={e => setTracks(ts => ts.map(x => x.track_id === t.track_id ? { ...x, class_id: parseInt(e.target.value) } : x))}
+            onChange={e => setTracks(ts => ts.map(x => x.track_id === t.track_id ? { ...x, class_id: parseInt(e.target.value) } : x), true)}
           >
             {labelSet.classes.map((c, i) => <option key={i} value={i}>{i + 1}. {c}</option>)}
           </select>
           <button onClick={() => {
             const name = prompt("Rename track:", t.name ?? "");
-            if (name !== null) setTracks(ts => ts.map(x => x.track_id === t.track_id ? { ...x, name } : x));
+            if (name !== null) setTracks(ts => ts.map(x => x.track_id === t.track_id ? { ...x, name } : x), true);
           }}>Rename</button>
-          <button onClick={() => setTracks(ts => ts.filter(x => x.track_id !== t.track_id))}>Delete</button>
+          <button onClick={() => setTracks(ts => ts.filter(x => x.track_id !== t.track_id), true)}>Delete</button>
         </div>
         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.8 }}>
           Presence toggles: {t.presence_toggles.join(", ") || "(none)"}
