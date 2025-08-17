@@ -84,6 +84,10 @@ const SequenceLabeler: React.FC<{
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  const lastSizeRef = useRef<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
   const [scaleMax, setScaleMax] = useState(3);
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
@@ -408,16 +412,19 @@ const SequenceLabeler: React.FC<{
   // observe canvas container size to enforce scale limits
   useEffect(() => {
     if (!meta || !canvasWrapRef.current) return;
-    const el = canvasWrapRef.current;
+    const el = canvasWrapRef.current.parentElement ?? containerRef.current;
+    if (!el) return;
     const update = () => {
-      const parentWidth =
-        el.parentElement?.getBoundingClientRect().width ??
-        el.getBoundingClientRect().width;
-      const { height } = el.getBoundingClientRect();
-      const fitW = Math.max(0.1, Math.min(3, parentWidth / meta.width));
+      const width = el.getBoundingClientRect().width;
+      const height = canvasWrapRef.current!.getBoundingClientRect().height;
+      const prev = lastSizeRef.current;
+      if (width === prev.width && height === prev.height) return;
+      prev.width = width;
+      prev.height = height;
+      const fitW = Math.max(0.1, Math.min(3, width / meta.width));
       const max = Math.max(
         0.1,
-        Math.min(3, parentWidth / meta.width, height / meta.height),
+        Math.min(3, width / meta.width, height / meta.height),
       );
       setScaleMax(fitWidth ? fitW : max);
       if (fitWidth) setScale(fitW);
