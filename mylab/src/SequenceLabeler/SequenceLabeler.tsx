@@ -1279,13 +1279,7 @@ const SequenceLabeler: React.FC<{
       >
         {/* Canvas + Timeline */}
         <div className={styles.canvasColumn}>
-          <div
-            ref={canvasWrapRef}
-            className={styles.canvasWrap}
-            style={{
-              aspectRatio: meta ? `${meta.width} / ${meta.height}` : undefined,
-            }}
-          >
+          <div ref={canvasWrapRef} className={styles.canvasWrap}>
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
