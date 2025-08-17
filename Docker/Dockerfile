@@ -7,13 +7,21 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # 필수 런타임 도구 + ffmpeg (OpenCV/프레임 추출용)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates curl tini zstd bzip2 \
+    ffmpeg ca-certificates curl tini zstd bzip2 libturbojpeg file \
  && rm -rf /var/lib/apt/lists/*
 
 # ========= micromamba (conda 대체, 경량) =========
 ENV MAMBA_ROOT_PREFIX=/opt/conda
-RUN curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest \
- | tar -x -C /usr/local/bin/ --strip-components=1 --use-compress-program=unzstd bin/micromamba
+RUN set -eux; \
+    url="https://micro.mamba.pm/api/micromamba/linux-64/latest"; \
+    tmp="/tmp/micromamba.tar"; \
+    curl -L "$url" -o "$tmp"; \
+    if file "$tmp" | grep -qi 'zstandard'; then \
+      tar -x --use-compress-program=unzstd -C /usr/local/bin/ --strip-components=1 -f "$tmp" bin/micromamba; \
+    else \
+      tar -xj -C /usr/local/bin/ --strip-components=1 -f "$tmp" bin/micromamba; \
+    fi; \
+    rm -f "$tmp"
 SHELL ["/bin/bash", "-lc"]
 
 # ========= conda env (원작자 스펙) =========
@@ -33,15 +41,16 @@ RUN micromamba run -n transt pip install \
     opencv-python \
     tb-nightly visdom scikit-image tikzplotlib gdown \
     pycocotools jpeg4py wget yacs \
-    shapely==1.6.4.post2
+    shapely==1.6.4.post2 \
+    "fastapi==0.95.2" "pydantic==1.10.13" "uvicorn==0.22.0"
 
 RUN mkdir -p /home/cx/detr-tracking/pytracking/networks/
-RUN gdown --id "1GYpf_YaWLpGva3HB9skDH4H6IFtSERyb" -O /home/cx/detr-tracking/pytracking/networks/transt.pth;
+RUN micromamba run -n transt gdown --id "1GYpf_YaWLpGva3HB9skDH4H6IFtSERyb" -O /home/cx/detr-tracking/pytracking/networks/transt.pth
 
 # ========= 앱 복사 =========
-WORKDIR /app
-COPY transt_server.py /app
-COPY transt_wrapper.py /app
+WORKDIR /transt
+COPY transt_server.py /transt
+COPY transt_wrapper.py /transt
 
 
 # 성능/안정화 환경변수
