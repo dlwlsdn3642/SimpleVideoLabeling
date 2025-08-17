@@ -559,7 +559,11 @@ const SequenceLabeler: React.FC<{
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = "#111";
       ctx.fillRect(0, 0, rect.width, rect.height);
-      ctx.drawImage(bmp, 0, 0, rect.width, rect.height);
+      const drawW = meta.width * scale;
+      const drawH = meta.height * scale;
+      const offsetX = (rect.width - drawW) / 2;
+      const offsetY = (rect.height - drawH) / 2;
+      ctx.drawImage(bmp, offsetX, offsetY, drawW, drawH);
 
       const drawRect = (
         r: RectPX,
@@ -567,8 +571,8 @@ const SequenceLabeler: React.FC<{
         alpha = 1,
         dashed = false,
       ) => {
-        const x = r.x * scale,
-          y = r.y * scale,
+        const x = r.x * scale + offsetX,
+          y = r.y * scale + offsetY,
           w = r.w * scale,
           h = r.h * scale;
         ctx.save();
@@ -620,8 +624,8 @@ const SequenceLabeler: React.FC<{
         const cls = labelSet.classes[t.class_id] ?? t.class_id;
         const tag = `${cls}${t.name ? ` (${t.name})` : ""}`;
         ctx.font = "12px monospace";
-        const x = r.x * scale,
-          y = r.y * scale,
+        const x = r.x * scale + offsetX,
+          y = r.y * scale + offsetY,
           w = ctx.measureText(tag).width + 8;
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.5;
@@ -632,8 +636,8 @@ const SequenceLabeler: React.FC<{
         ctx.restore();
       }
       if (dragRef.current.creating && draftRect) {
-        const x = draftRect.x * scale,
-          y = draftRect.y * scale,
+        const x = draftRect.x * scale + offsetX,
+          y = draftRect.y * scale + offsetY,
           w = draftRect.w * scale,
           h = draftRect.h * scale;
         ctx.save();
@@ -791,9 +795,11 @@ const SequenceLabeler: React.FC<{
   /** ===== Mouse (edit) ===== */
   const toImgCoords = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = (ev.target as HTMLCanvasElement).getBoundingClientRect();
+    const offsetX = (rect.width - meta!.width * scale) / 2;
+    const offsetY = (rect.height - meta!.height * scale) / 2;
     return {
-      mx: (ev.clientX - rect.left) / scale,
-      my: (ev.clientY - rect.top) / scale,
+      mx: (ev.clientX - rect.left - offsetX) / scale,
+      my: (ev.clientY - rect.top - offsetY) / scale,
     };
   };
   function ensureKFAt(t: Track, f: number, r: RectPX): Track {
