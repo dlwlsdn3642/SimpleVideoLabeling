@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import type { LabelSet, Track } from "../types";
 
 type Props = {
@@ -119,7 +119,7 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
       {rendered}
       {!tracks.length && (
         <div style={{ opacity: 0.7, fontSize: 12 }}>
-          캔버스를 드래그해 새 트랙을 만드세요. Alt+드래그=다중 이동(선택된 트랙)
+          Shift+드래그로 새 트랙을 만드세요. Alt+드래그=다중 이동(선택된 트랙)
         </div>
       )}
     </div>

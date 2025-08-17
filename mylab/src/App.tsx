@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
@@ -103,10 +103,10 @@ export default function App() {
     <div className={appStyles.appRoot}>
         <div
           className={appStyles.sidebar}
-          style={{ width: panelOpen ? 250 : 0, borderRight: panelOpen ? undefined : "none", padding: panelOpen ? 8 : 0 }}
+          style={{ width: panelOpen ? "clamp(220px, 22vw, 340px)" : 0, borderRight: panelOpen ? undefined : "none", padding: panelOpen ? 8 : 0 }}
         >
         {panelOpen && (
-          <>
+          <div className={`${appStyles.sidebarInner} slide-in`}>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <button onClick={handleCreateProject}>New Project</button>
               <button onClick={handleCloseProject} disabled={!currentProject}>Close Project</button>
@@ -137,12 +137,13 @@ export default function App() {
                 </ul>
               </div>
             )}
-          </>
+          </div>
         )}
         </div>
         <div className={appStyles.content}>
           {currentTask ? (
             <ErrorBoundary>
+            <div className="fade-in">
             <SequenceLabeler
               framesBaseUrl={`${currentTask.workFolder}/frames`}
               indexUrl={`${currentTask.workFolder}/index.json`}
@@ -163,9 +164,10 @@ export default function App() {
                 refresh();
               }}
             />
+            </div>
             </ErrorBoundary>
           ) : (
-            <div style={{ padding: 16 }}>Select a task.</div>
+            <div style={{ padding: 16 }} className="fade-in">Select a task.</div>
           )}
         </div>
     </div>

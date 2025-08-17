@@ -1,7 +1,8 @@
-import React from "react";
+import type React from "react";
 import styles from "./SequenceLabeler.module.css";
 import type { LabelSet, Track } from "../types";
 import { TrackPanel } from "../components";
+import { shouldInjectError } from "../utils/debug";
 
 type Props = {
   labelSet: LabelSet;
@@ -42,6 +43,9 @@ const SLRightPanel: React.FC<Props> = ({
   onPasteTracks,
   canPaste,
 }) => {
+  if (shouldInjectError('SLRightPanel')) {
+    throw new Error('Injected error: SLRightPanel');
+  }
   return (
     <div className={styles.rightPanel}>
       {/* View options */}
@@ -218,4 +222,3 @@ const SLRightPanel: React.FC<Props> = ({
 };
 
 export default SLRightPanel;
-

@@ -14,25 +14,45 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
 
 .workArea {
   display: grid;
   min-height: 0;
+  height: 100%;
+  overflow: hidden; /* contain any overflow from canvas column */
 }
 
 .canvasColumn {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   background: var(--bg-alt);
   min-width: 0;
   min-height: 0;
+  transition: background-color 160ms ease;
 }
 
 .canvasWrap {
   display: grid;
   place-items: center;
   width: 100%;
+  height: 100%;
+  overflow: hidden; /* prevent canvas overflow overlapping timeline */
+}
+
+.canvasEl {
+  display: block;
+  /* Lock by height to prevent pushing timeline */
+  height: 100%;
+  width: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  image-rendering: pixelated;
 }
 
 .timelineBar {
@@ -41,29 +61,46 @@
   gap: var(--space-2);
   padding: 6px 12px;
   border-top: 1px solid var(--border);
+  transition: background-color 160ms ease, border-color 160ms ease;
 }
+
+.timelineResizer {
+  height: 6px;
+  cursor: ns-resize;
+  background: transparent;
+  border-top: 1px solid var(--border-weak);
+  border-bottom: 1px solid var(--border-weak);
+  transition: background-color 160ms ease, border-color 160ms ease;
+  position: relative;
+  z-index: 2; /* keep on top of canvas if any overflow */
+}
+.timelineResizer:hover { background: rgba(255,255,255,0.05); }
 
 .timelineWrap {
   padding: 6px 12px;
   border-top: 1px solid var(--border);
-  height: 160px; /* fixed visible timeline height */
+  /* Responsive timeline height with CSS var override */
+  height: var(--timeline-height, clamp(120px, 24vh, 280px));
   overflow: auto;
   box-sizing: border-box;
+  transition: height 180ms ease, background-color 160ms ease, border-color 160ms ease;
+  will-change: height;
 }
 
 .seekRange {
   flex: 1;
-  min-width: 180px;
+  min-width: var(--seek-min);
 }
 
 .rightPanel {
   border-left: 1px solid var(--border);
   padding: var(--space-2);
   overflow: auto;
-  min-width: 160px;
+  min-width: var(--right-min);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  transition: border-color 160ms ease, background-color 160ms ease, transform 180ms ease;
 }
 
 .viewOptions {

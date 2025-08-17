@@ -3,3 +3,9 @@ declare module '*.module.css' {
   export default classes;
 }
 
+declare global {
+  interface Window {
+    __INJECT_ERR?: string;
+  }
+}
+

@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
-import { TrackPanel, ShortcutModal } from "../components";
+import { ShortcutModal } from "../components";
 import styles from "./SequenceLabeler.module.css";
 import SLTopBar from "./SLTopBar";
 import SLTimelineSection from "./SLTimelineSection";
@@ -79,7 +79,7 @@ const SequenceLabeler: React.FC<{
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const workAreaRef = useRef<HTMLDivElement | null>(null);
   const [sideWidth, setSideWidth] = useState(240);
-  const MIN_SIDE_WIDTH = 160;
+  const MIN_SIDE_WIDTH = 88;
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -140,6 +140,7 @@ const SequenceLabeler: React.FC<{
   // editing
   const [dragHandle, setDragHandle] = useState<Handle>("none");
   const [hoverHandle, setHoverHandle] = useState<Handle>("none");
+  const [shiftHeld, setShiftHeld] = useState(false);
   const dragRef = useRef<{
     mx: number;
     my: number;
@@ -204,7 +205,9 @@ const SequenceLabeler: React.FC<{
   // layout refs for timeline area
   const timelineWrapRef = useRef<HTMLDivElement | null>(null);
   const timelineBarRef = useRef<HTMLDivElement | null>(null);
+  const timelineResizerRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
+  const [timelineHeight, setTimelineHeight] = useState<number | null>(null);
   const [needsImport, setNeedsImport] = useState(false);
 
   const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
@@ -335,6 +338,26 @@ const SequenceLabeler: React.FC<{
     };
   }, [indexUrl, localFiles, storagePrefix, loadFromDir, onFolderImported]);
 
+  // load saved timeline height
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`${storagePrefix}::timeline_h`);
+      if (raw) {
+        const v = parseInt(raw, 10);
+        if (!Number.isNaN(v)) setTimelineHeight(v);
+      }
+    } catch {/* ignore */}
+  }, [storagePrefix]);
+  useEffect(() => {
+    if (timelineHeight == null) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(`${storagePrefix}::timeline_h`, String(timelineHeight));
+      } catch {/* ignore */}
+    }, 200);
+    return () => clearTimeout(t);
+  }, [timelineHeight, storagePrefix]);
+
   useEffect(() => {
     const raw = localStorage.getItem("sequence_label_sets_v1");
     if (raw) {
@@ -398,32 +421,45 @@ const SequenceLabeler: React.FC<{
         timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
       const toolbarH =
         timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+      const resizerH =
+        timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
-      const availH = Math.max(0, rect.height - timelineH - toolbarH);
+      const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
       if (totalW <= 0) return;
       // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
       const safeAvailH = Math.max(0, availH);
       const desiredCanvasW = safeAvailH * (meta.width / meta.height);
+      // Compute responsive constraints equivalent to CSS vars
+      const vw = Math.max(320, rect.width || window.innerWidth || totalW);
+      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16)); // clamp(128px, 16vw, 220px)
+      const rightMaxPx = Math.min(vw * 0.36, 420);                // min(36vw, 420px)
       let newSide = totalW - desiredCanvasW;
-      if (newSide < MIN_SIDE_WIDTH) newSide = MIN_SIDE_WIDTH;
-      if (newSide > totalW) newSide = totalW;
-      const canvasW = totalW - newSide;
+      // bound using JS-calculated min/max to match CSS clamp()
+      newSide = Math.min(Math.max(newSide, rightMinPx), Math.min(rightMaxPx, totalW));
+      const canvasW = Math.max(0, totalW - newSide);
+      // Never let canvas height exceed available height
+      const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
+      const scaleByW = canvasW / meta.width;
+      const nextScale = Math.min(scaleByH > 0 ? scaleByH : scale, scaleByW);
       setSideWidth(newSide);
-      setScale(safeAvailH > 0 ? canvasW / meta.width : Math.min(scale, canvasW / meta.width));
+      setScale(nextScale);
     };
     update();
     const ro = new ResizeObserver(update);
     const roTimeline = new ResizeObserver(update);
     const roBar = new ResizeObserver(update);
+    const roResizer = new ResizeObserver(update);
     ro.observe(el);
     if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
     if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
+    if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
       roTimeline.disconnect();
       roBar.disconnect();
+      roResizer.disconnect();
     };
-  }, [meta]);
+  }, [meta, timelineHeight]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(
@@ -613,6 +649,21 @@ const SequenceLabeler: React.FC<{
   ]);
 
   /** ===== Keyboard ===== */
+  // Track Shift pressed state for cursor affordance
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (recordingAction) {
@@ -794,8 +845,8 @@ const SequenceLabeler: React.FC<{
         multi,
         historyPushed: false,
       };
-    } else {
-      // 새 트랙 생성 드래그 시작
+    } else if (ev.shiftKey) {
+      // 새 트랙 생성 드래그 시작 (Shift+드래그)
       const temp: RectPX = { x: mx, y: my, w: 1, h: 1 };
       dragRef.current = {
         mx,
@@ -807,6 +858,10 @@ const SequenceLabeler: React.FC<{
       };
       setDraftRect(temp);
       setDragHandle("se");
+    } else {
+      // 빈 공간 클릭: 생성하지 않음 (선택 유지)
+      setDragHandle("none");
+      setHoverHandle("none");
     }
   };
 
@@ -1192,7 +1247,11 @@ const SequenceLabeler: React.FC<{
       />
 
       {/* Middle: Canvas + Right panel */}
-      <div ref={workAreaRef} className={styles.workArea} style={{ gridTemplateColumns: `1fr ${sideWidth}px` }}>
+      <div
+        ref={workAreaRef}
+        className={styles.workArea}
+        style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
+      >
         {/* Canvas + Timeline */}
         <div className={styles.canvasColumn}>
           <div
@@ -1204,13 +1263,15 @@ const SequenceLabeler: React.FC<{
             ) : (
               <canvas
                 ref={canvasRef}
+                className={styles.canvasEl}
                 style={{
-                  border: "1px solid #333",
-                  imageRendering: "pixelated",
-                  cursor: handleCursor(
-                    dragHandle !== "none" ? dragHandle : hoverHandle,
-                    dragHandle !== "none",
-                  ),
+                  aspectRatio: meta ? `${meta.width} / ${meta.height}` : undefined,
+                  cursor:
+                    dragHandle !== 'none'
+                      ? handleCursor(dragHandle, true)
+                      : hoverHandle !== 'none'
+                        ? handleCursor(hoverHandle, false)
+                        : (shiftHeld ? 'crosshair' : 'default'),
                 }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -1221,6 +1282,8 @@ const SequenceLabeler: React.FC<{
           <SLTimelineSection
             timelineBarRef={timelineBarRef}
             timelineWrapRef={timelineWrapRef}
+            timelineResizerRef={timelineResizerRef}
+            timelineHeight={timelineHeight}
             frame={frame}
             totalFrames={totalFrames}
             onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
@@ -1246,12 +1309,34 @@ const SequenceLabeler: React.FC<{
             onAddKeyframe={addKeyframe}
             hiddenClasses={hiddenClasses}
             rowHeight={16}
+            onStartResize={(ev) => {
+              ev.preventDefault();
+              const startY = ev.clientY;
+              const startH = timelineWrapRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
+              const workRect = workAreaRef.current?.getBoundingClientRect();
+              const toolbarH = timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+              const totalH = workRect?.height ?? 0;
+              const minH = 80;
+              const maxH = Math.max(minH, Math.min((totalH - toolbarH) - 120, 600));
+              const onMove = (e: MouseEvent) => {
+                const dy = e.clientY - startY;
+                // Resizer is above the timeline: moving down should reduce height
+                const next = Math.max(minH, Math.min(startH - dy, maxH));
+                setTimelineHeight(next);
+              };
+              const onUp = () => {
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+              };
+              window.addEventListener('mousemove', onMove);
+              window.addEventListener('mouseup', onUp);
+            }}
           />
         </div>
 
         {/* Right panel */}
-        <SLRightPanel
-          labelSet={labelSet}
+          <SLRightPanel
+            labelSet={labelSet}
           setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
           availableSets={availableSets}
           setAvailableSets={setAvailableSets}

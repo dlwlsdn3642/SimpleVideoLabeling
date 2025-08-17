@@ -1,5 +1,6 @@
-import React from "react";
+import type React from "react";
 import styles from "./SequenceLabeler.module.css";
+import { shouldInjectError } from "../utils/debug";
 
 type Props = {
   leftTopExtra?: React.ReactNode;
@@ -38,6 +39,9 @@ const SLTopBar: React.FC<Props> = ({
   onExportYOLO,
   onOpenShortcuts,
 }) => {
+  if (shouldInjectError('SLTopBar')) {
+    throw new Error('Injected error: SLTopBar');
+  }
   return (
     <div className={styles.topBar}>
       {leftTopExtra ? (

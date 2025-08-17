@@ -10,8 +10,13 @@
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
-  transition: width 0.2s;
+  transition: width 180ms ease, padding 180ms ease, border-color 180ms ease;
+  will-change: width;
   padding: 8px;
+}
+
+.sidebarInner {
+  height: 100%;
 }
 
 .list {
@@ -26,10 +31,18 @@
   gap: 6px;
   margin-bottom: 4px;
 }
+.listItem button {
+  transition: transform 120ms ease, background-color 160ms ease, opacity 160ms ease;
+}
+.listItem button:hover {
+  transform: translateX(2px);
+}
+.listItem button[title~="Delete"]:hover {
+  transform: scale(1.06);
+}
 
 .content {
   flex: 1;
   min-width: 0;
   min-height: 0;
 }
-

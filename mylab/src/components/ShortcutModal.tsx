@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import type { KeyMap } from "../types";
 
 // 사용자가 보기 쉬운 이름으로 표시하기 위한 매핑
@@ -38,8 +38,8 @@ const ShortcutModal: React.FC<Props> = ({
 }) => {
   if (!open) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "grid", placeItems: "center" }}>
-      <div style={{ background: "#161616", border: "1px solid #333", padding: 16, width: 520 }}>
+    <div className="overlay">
+      <div className="overlayContent">
         <div style={{ fontWeight: 700, marginBottom: 8 }}>Shortcut Settings</div>
         <table style={{ width: "100%", fontSize: 13 }}>
           <tbody>

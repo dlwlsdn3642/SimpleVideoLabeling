@@ -1,12 +1,14 @@
-import React, { RefObject } from "react";
+import type { RefObject, FC } from "react";
 import styles from "./SequenceLabeler.module.css";
 import { Timeline } from "../components";
 import type { Track, LabelSet } from "../types";
-import { clamp } from "../utils/geom";
+import { shouldInjectError } from "../utils/debug";
 
 type Props = {
-  timelineBarRef: RefObject<HTMLDivElement>;
-  timelineWrapRef: RefObject<HTMLDivElement>;
+  timelineBarRef: RefObject<HTMLDivElement | null>;
+  timelineWrapRef: RefObject<HTMLDivElement | null>;
+  timelineResizerRef?: RefObject<HTMLDivElement | null>;
+  timelineHeight?: number | null;
   frame: number;
   totalFrames: number;
   onPrevFrame: () => void;
@@ -23,11 +25,14 @@ type Props = {
   onAddKeyframe: (trackId: string, frame: number) => void;
   hiddenClasses: Set<number>;
   rowHeight?: number;
+  onStartResize?: (ev: React.MouseEvent<HTMLDivElement>) => void;
 };
 
-const SLTimelineSection: React.FC<Props> = ({
+const SLTimelineSection: FC<Props> = ({
   timelineBarRef,
   timelineWrapRef,
+  timelineResizerRef,
+  timelineHeight,
   frame,
   totalFrames,
   onPrevFrame,
@@ -44,7 +49,11 @@ const SLTimelineSection: React.FC<Props> = ({
   onAddKeyframe,
   hiddenClasses,
   rowHeight = 20,
+  onStartResize,
 }) => {
+  if (shouldInjectError('SLTimelineSection')) {
+    throw new Error('Injected error: SLTimelineSection');
+  }
   return (
     <>
       <div ref={timelineBarRef} className={styles.timelineBar}>
@@ -63,8 +72,17 @@ const SLTimelineSection: React.FC<Props> = ({
           + Add Keyframe
         </button>
       </div>
+      <div
+        ref={timelineResizerRef}
+        className={styles.timelineResizer}
+        onMouseDown={onStartResize}
+      />
 
-      <div ref={timelineWrapRef} className={styles.timelineWrap}>
+      <div
+        ref={timelineWrapRef}
+        className={styles.timelineWrap}
+        style={timelineHeight != null ? { height: `${timelineHeight}px` } : undefined}
+      >
         <Timeline
           total={totalFrames || 1}
           frame={frame}
