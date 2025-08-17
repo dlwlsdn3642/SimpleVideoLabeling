@@ -1,4 +1,4 @@
-import { Project, Task } from "../types";
+import type { Project, Task } from "../types";
 import { uuid } from "../utils/geom";
 
 const STORAGE_KEY = "projects_v1";
