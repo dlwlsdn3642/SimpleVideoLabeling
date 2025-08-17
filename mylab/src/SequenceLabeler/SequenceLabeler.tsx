@@ -778,6 +778,12 @@ const SequenceLabeler: React.FC<{
             )}
           </div>
           <div ref={timelineWrapRef} style={{ padding: "6px 12px", borderTop: "1px solid #222" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+              <button onClick={() => setFrame(f => clamp(f - 1, 0, totalFrames - 1))}>Prev</button>
+              <button onClick={() => setFrame(f => clamp(f + 1, 0, totalFrames - 1))}>Next</button>
+              <button onClick={gotoPrevKeyframe} disabled={!oneSelected || oneSelected.keyframes.length === 0}>Prev KF</button>
+              <button onClick={gotoNextKeyframe} disabled={!oneSelected || oneSelected.keyframes.length === 0}>Next KF</button>
+            </div>
             <Timeline
               total={totalFrames || 1}
               frame={frame}
