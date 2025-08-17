@@ -419,13 +419,13 @@ const SequenceLabeler: React.FC<{
     return () => ro.disconnect();
   }, []);
 
-  // adjust side panel width to fill canvas height
+  // keep canvas scale in sync with available space
   useEffect(() => {
     if (!meta || !workAreaRef.current) return;
     const el = workAreaRef.current;
     let raf = 0;
-    let pendingSide = sideWidth;
     let pendingScale = scale;
+    let pendingSide = sideWidth;
 
     const flush = () => {
       raf = 0;
@@ -441,27 +441,14 @@ const SequenceLabeler: React.FC<{
         timelineBarRef.current?.getBoundingClientRect().height ?? 0;
       const resizerH =
         timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
-      const totalW = rect.width;
       const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
-      if (totalW <= 0) return;
-      const safeAvailH = Math.max(0, availH);
-      const desiredCanvasW = safeAvailH * (meta.width / meta.height);
-      const vw = Math.max(320, rect.width || window.innerWidth || totalW);
-      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16));
-      const rightMaxPx = Math.min(vw * 0.36, 420);
-      let newSide = totalW - desiredCanvasW;
-      newSide = Math.min(
-        Math.max(newSide, rightMinPx),
-        Math.min(rightMaxPx, totalW),
-      );
-      const canvasW = Math.max(0, totalW - newSide);
-      const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
+      const safeSide = Math.min(sideWidth, rect.width);
+      const canvasW = Math.max(0, rect.width - safeSide);
+      if (canvasW <= 0 || availH <= 0) return;
+      const scaleByH = availH / meta.height;
       const scaleByW = canvasW / meta.width;
-      pendingScale = Math.min(
-        scaleByH > 0 ? scaleByH : scale,
-        scaleByW,
-      );
-      pendingSide = newSide;
+      pendingScale = Math.min(scaleByH, scaleByW);
+      pendingSide = safeSide;
       if (!raf) {
         raf = requestAnimationFrame(flush);
       }
@@ -484,7 +471,7 @@ const SequenceLabeler: React.FC<{
       roResizer.disconnect();
       cancelAnimationFrame(raf);
     };
-  }, [meta, timelineHeight]);
+  }, [meta, sideWidth, timelineHeight]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(
