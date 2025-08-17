@@ -96,10 +96,8 @@
   overflow: auto;
   box-sizing: border-box;
   transition:
-    height 180ms ease,
     background-color 160ms ease,
     border-color 160ms ease;
-  will-change: height;
 }
 
 .seekRange {

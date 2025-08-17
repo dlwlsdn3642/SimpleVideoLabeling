@@ -424,6 +424,15 @@ const SequenceLabeler: React.FC<{
     if (!meta || !workAreaRef.current) return;
     const el = workAreaRef.current;
     let raf = 0;
+    let pendingSide = sideWidth;
+    let pendingScale = scale;
+
+    const flush = () => {
+      raf = 0;
+      setSideWidth(pendingSide);
+      setScale(pendingScale);
+    };
+
     const update = () => {
       const rect = el.getBoundingClientRect();
       const timelineH =
@@ -435,30 +444,29 @@ const SequenceLabeler: React.FC<{
       const totalW = rect.width;
       const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
       if (totalW <= 0) return;
-      // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
       const safeAvailH = Math.max(0, availH);
       const desiredCanvasW = safeAvailH * (meta.width / meta.height);
-      // Compute responsive constraints equivalent to CSS vars
       const vw = Math.max(320, rect.width || window.innerWidth || totalW);
-      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16)); // clamp(128px, 16vw, 220px)
-      const rightMaxPx = Math.min(vw * 0.36, 420); // min(36vw, 420px)
+      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16));
+      const rightMaxPx = Math.min(vw * 0.36, 420);
       let newSide = totalW - desiredCanvasW;
-      // bound using JS-calculated min/max to match CSS clamp()
       newSide = Math.min(
         Math.max(newSide, rightMinPx),
         Math.min(rightMaxPx, totalW),
       );
       const canvasW = Math.max(0, totalW - newSide);
-      // Never let canvas height exceed available height
       const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
       const scaleByW = canvasW / meta.width;
-      const nextScale = Math.min(scaleByH > 0 ? scaleByH : scale, scaleByW);
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        setSideWidth(newSide);
-        setScale(nextScale);
-      });
+      pendingScale = Math.min(
+        scaleByH > 0 ? scaleByH : scale,
+        scaleByW,
+      );
+      pendingSide = newSide;
+      if (!raf) {
+        raf = requestAnimationFrame(flush);
+      }
     };
+
     update();
     const ro = new ResizeObserver(update);
     const roTimeline = new ResizeObserver(update);
