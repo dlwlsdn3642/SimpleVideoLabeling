@@ -3,6 +3,7 @@ import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
 import { saveDirHandle } from "./utils/handles";
+import appStyles from "./App.module.css";
 
 export default function App() {
   const pm = useRef(new ProjectManager());
@@ -98,17 +99,10 @@ export default function App() {
   };
 
   return (
-    <div style={{ height: "100vh", display: "flex", position: "relative", minHeight: 0 }}>
+    <div className={appStyles.appRoot}>
         <div
-          style={{
-            width: panelOpen ? 250 : 0,
-            borderRight: panelOpen ? "1px solid #ccc" : "none",
-            padding: panelOpen ? 8 : 0,
-            overflowY: panelOpen ? "auto" : "hidden",
-            overflowX: "hidden",
-            position: "relative",
-            transition: "width 0.2s"
-          }}
+          className={appStyles.sidebar}
+          style={{ width: panelOpen ? 250 : 0, borderRight: panelOpen ? undefined : "none", padding: panelOpen ? 8 : 0 }}
         >
         {panelOpen && (
           <>
@@ -116,9 +110,9 @@ export default function App() {
               <button onClick={handleCreateProject}>New Project</button>
               <button onClick={handleCloseProject} disabled={!currentProject}>Close Project</button>
             </div>
-            <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+            <ul className={appStyles.list}>
               {projects.map(p => (
-                <li key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <li key={p.id} className={appStyles.listItem}>
                   <button onClick={() => selectProject(p.id)} style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal", flex: 1, textAlign: "left" }}>
                     {p.name}
                   </button>
@@ -130,9 +124,9 @@ export default function App() {
               <div style={{ marginTop: 8 }}>
                 <h4>Tasks</h4>
                 <button onClick={handleCreateTask}>New Task</button>
-                <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+                <ul className={appStyles.list}>
                   {currentProject.tasks.map(t => (
-                    <li key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <li key={t.id} className={appStyles.listItem}>
                       <button onClick={() => selectTask(t)} style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal", flex: 1, textAlign: "left" }}>
                         {t.name}
                       </button>
@@ -145,7 +139,7 @@ export default function App() {
           </>
         )}
         </div>
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+        <div className={appStyles.content}>
           {currentTask ? (
             <SequenceLabeler
               framesBaseUrl={`${currentTask.workFolder}/frames`}

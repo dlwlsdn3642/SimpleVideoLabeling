@@ -9,6 +9,7 @@ import React, {
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
 import { Timeline, TrackPanel, ShortcutModal } from "../components";
+import styles from "./SequenceLabeler.module.css";
 import type {
   IndexMeta,
   RectPX,
@@ -1165,27 +1166,9 @@ const SequenceLabeler: React.FC<{
   }, [storagePrefix, meta, labelSet, tracks, frame, interpolate, showGhosts]);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateRows: "auto 1fr auto auto",
-        height: "100%",
-        background: "#0b0b0b",
-        color: "#e7e7e7",
-        fontFamily: "Inter, ui-monospace, Menlo, Consolas",
-      }}
-    >
+    <div className={styles.container}>
       {/* Top bar */}
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          alignItems: "center",
-          padding: "8px 12px",
-          borderBottom: "1px solid #222",
-          flexWrap: "wrap",
-        }}
-      >
+      <div className={styles.topBar}>
         {leftTopExtra ? (
           <div style={{ marginRight: 8, display: "flex", alignItems: "center" }}>
             {leftTopExtra}
@@ -1193,6 +1176,7 @@ const SequenceLabeler: React.FC<{
         ) : null}
         <button
           onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+          aria-label="Previous frame"
         >
           ←
         </button>
@@ -1206,10 +1190,11 @@ const SequenceLabeler: React.FC<{
         />
         <button
           onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+          aria-label="Next frame"
         >
           →
         </button>
-        <button onClick={() => setPlaying((p) => !p)}>
+        <button onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"}>
           {playing ? "Pause" : "Play"}
         </button>
         <span style={{ opacity: 0.85 }}>
@@ -1238,27 +1223,12 @@ const SequenceLabeler: React.FC<{
       </div>
 
       {/* Middle: Canvas + Right panel */}
-      <div
-        ref={workAreaRef}
-        style={{
-          display: "grid",
-          gridTemplateColumns: `1fr ${sideWidth}px`,
-          minHeight: 0,
-        }}
-      >
+      <div ref={workAreaRef} className={styles.workArea} style={{ gridTemplateColumns: `1fr ${sideWidth}px` }}>
         {/* Canvas + Timeline */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateRows: "1fr auto auto",
-            background: "#111",
-            minWidth: 0,
-            minHeight: 0,
-          }}
-        >
+        <div className={styles.canvasColumn}>
           <div
             ref={canvasWrapRef}
-            style={{ display: "grid", placeItems: "center", width: "100%" }}
+            className={styles.canvasWrap}
           >
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
@@ -1280,25 +1250,18 @@ const SequenceLabeler: React.FC<{
             )}
           </div>
           {/* Timeline toolbar (above timeline) */}
-          <div
-            ref={timelineBarRef}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "6px 12px",
-              borderTop: "1px solid #222",
-            }}
-          >
+          <div ref={timelineBarRef} className={styles.timelineBar}>
             <button
               title="Prev frame"
               onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+              aria-label="Previous frame"
             >
               ←
             </button>
             <button
               title="Next frame"
               onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+              aria-label="Next frame"
             >
               →
             </button>
@@ -1315,10 +1278,7 @@ const SequenceLabeler: React.FC<{
             </button>
           </div>
 
-          <div
-            ref={timelineWrapRef}
-            style={{ padding: "6px 12px", borderTop: "1px solid #222" }}
-          >
+          <div ref={timelineWrapRef} className={styles.timelineWrap}>
             <Timeline
               total={totalFrames || 1}
               frame={frame}
@@ -1345,17 +1305,7 @@ const SequenceLabeler: React.FC<{
         </div>
 
         {/* Right panel */}
-        <div
-          style={{
-            borderLeft: "1px solid #222",
-            padding: 8,
-            overflow: "auto",
-            minWidth: MIN_SIDE_WIDTH,
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-          }}
-        >
+        <div className={styles.rightPanel}>
           {/* View options */}
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1556,18 +1506,7 @@ const SequenceLabeler: React.FC<{
 
           </div>
           {/* Bottom-pinned help within the right panel */}
-          <div
-            style={{
-              position: "sticky",
-              bottom: 0,
-              marginTop: "auto",
-              padding: "6px 8px",
-              borderTop: "1px solid #222",
-              fontSize: 12,
-              opacity: 0.85,
-              background: "#0b0b0b",
-            }}
-          >
+          <div className={styles.shortcutHelp}>
             Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
             KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
             View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class

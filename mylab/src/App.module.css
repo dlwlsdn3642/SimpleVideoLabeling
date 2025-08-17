@@ -1,0 +1,35 @@
+.appRoot {
+  height: 100vh;
+  display: flex;
+  position: relative;
+  min-height: 0;
+}
+
+.sidebar {
+  border-right: 1px solid #ccc;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  transition: width 0.2s;
+  padding: 8px;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
