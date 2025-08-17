@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import SequenceLabeler from "./SequenceLabeler/SequenceLabeler";
+import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
 
