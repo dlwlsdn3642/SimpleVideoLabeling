@@ -1125,6 +1125,32 @@ const SequenceLabeler: React.FC<{
 
   const totalFrames = localFiles ? localFiles.length : files.length;
 
+  // Manual save to localStorage to guarantee persistence on demand
+  const saveNow = useCallback(() => {
+    try {
+      localStorage.setItem(
+        `${storagePrefix}::autosave_v2`,
+        JSON.stringify({
+          schema: DEFAULT_SCHEMA,
+          version: DEFAULT_VERSION,
+          meta,
+          labelSet,
+          tracks,
+          frame,
+          interpolate,
+          showGhosts,
+        }),
+      );
+      // Optional lightweight feedback
+      // eslint-disable-next-line no-alert
+      alert("Saved");
+    } catch (err) {
+      console.error(err);
+      // eslint-disable-next-line no-alert
+      alert("Save failed");
+    }
+  }, [storagePrefix, meta, labelSet, tracks, frame, interpolate, showGhosts]);
+
   return (
     <div
       style={{
@@ -1187,6 +1213,7 @@ const SequenceLabeler: React.FC<{
         {needsImport && (
           <span style={{ color: "#f66" }}>Load failed. Use Import Folder.</span>
         )}
+        <button onClick={saveNow}>Save</button>
         <button onClick={exportJSON}>Export JSON</button>
         <button onClick={exportYOLO}>Export YOLO</button>
         <button onClick={() => setKeyUIOpen(true)}>Shortcuts</button>
@@ -1205,7 +1232,7 @@ const SequenceLabeler: React.FC<{
         <div
           style={{
             display: "grid",
-            gridTemplateRows: "1fr auto",
+            gridTemplateRows: "1fr auto auto",
             background: "#111",
             minWidth: 0,
           }}
@@ -1233,6 +1260,41 @@ const SequenceLabeler: React.FC<{
               />
             )}
           </div>
+          {/* Timeline toolbar (above timeline) */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 12px",
+              borderTop: "1px solid #222",
+            }}
+          >
+            <button
+              title="Prev frame"
+              onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+            >
+              ←
+            </button>
+            <button
+              title="Next frame"
+              onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+            >
+              →
+            </button>
+            <span style={{ opacity: 0.85 }}>
+              Frame {totalFrames ? frame + 1 : "—"}/{totalFrames || "—"}
+            </span>
+            <button
+              title="Add keyframe at current (K)"
+              onClick={addKeyframeAtCurrent}
+              disabled={!oneSelected}
+              style={{ marginLeft: 8 }}
+            >
+              + Add Keyframe
+            </button>
+          </div>
+
           <div
             ref={timelineWrapRef}
             style={{ padding: "6px 12px", borderTop: "1px solid #222" }}

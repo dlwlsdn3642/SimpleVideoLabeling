@@ -109,7 +109,16 @@ const Timeline: React.FC<Props> = ({
           onAddKeyframe(visibleTracks[trackIdx].track_id, f);
         }
       }}
-      onContextMenu={(ev) => ev.preventDefault()}
+      onContextMenu={(ev) => {
+        // Allow right-click deletion on the grid cell (not only the small circle)
+        ev.preventDefault();
+        const { f, trackIdx } = getPosFromEvent(ev);
+        if (trackIdx >= 0 && trackIdx < visibleTracks.length) {
+          const t = visibleTracks[trackIdx];
+          const hasKF = t.keyframes.some((k) => k.frame === f);
+          if (hasKF) onDeleteKeyframe(t.track_id, f);
+        }
+      }}
     >
       <rect
         x={0}
