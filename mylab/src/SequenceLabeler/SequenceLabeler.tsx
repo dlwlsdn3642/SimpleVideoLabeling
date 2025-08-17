@@ -8,8 +8,10 @@ import React, {
 } from "react";
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
-import { Timeline, TrackPanel, ShortcutModal } from "../components";
+import { TrackPanel, ShortcutModal } from "../components";
 import styles from "./SequenceLabeler.module.css";
+import SLTopBar from "./SLTopBar";
+import SLTimelineSection from "./SLTimelineSection";
 import type {
   IndexMeta,
   RectPX,
@@ -1167,60 +1169,24 @@ const SequenceLabeler: React.FC<{
 
   return (
     <div className={styles.container}>
-      {/* Top bar */}
-      <div className={styles.topBar}>
-        {leftTopExtra ? (
-          <div style={{ marginRight: 8, display: "flex", alignItems: "center" }}>
-            {leftTopExtra}
-          </div>
-        ) : null}
-        <button
-          onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
-          aria-label="Previous frame"
-        >
-          ←
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, totalFrames - 1)}
-          value={frame}
-          onChange={(e) => setFrame(parseInt(e.target.value))}
-          style={{ flex: 1, minWidth: 180 }}
-        />
-        <button
-          onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
-          aria-label="Next frame"
-        >
-          →
-        </button>
-        <button onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"}>
-          {playing ? "Pause" : "Play"}
-        </button>
-        <span style={{ opacity: 0.85 }}>
-          Frame {frame + 1}/{totalFrames || "—"}
-        </span>
-
-        {/* Removed duplicate Interp toggle (right panel has the control) */}
-
-        <button
-          onClick={togglePresenceAtCurrent}
-          disabled={!selectedTracks.length}
-        >
-          Toggle Presence (N)
-        </button>
-
-        <button style={{ marginLeft: "auto" }} onClick={importFolder}>
-          Import Folder
-        </button>
-        {needsImport && (
-          <span style={{ color: "#f66" }}>Load failed. Use Import Folder.</span>
-        )}
-        <button onClick={saveNow}>Save</button>
-        <button onClick={exportJSON}>Export JSON</button>
-        <button onClick={exportYOLO}>Export YOLO</button>
-        <button onClick={() => setKeyUIOpen(true)}>Shortcuts</button>
-      </div>
+      <SLTopBar
+        leftTopExtra={leftTopExtra}
+        frame={frame}
+        totalFrames={totalFrames}
+        playing={playing}
+        onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+        onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+        onSeek={(val) => setFrame(val)}
+        onTogglePlay={() => setPlaying((p) => !p)}
+        onTogglePresence={togglePresenceAtCurrent}
+        canTogglePresence={!!selectedTracks.length}
+        onImportFolder={importFolder}
+        needsImport={needsImport}
+        onSave={saveNow}
+        onExportJSON={exportJSON}
+        onExportYOLO={exportYOLO}
+        onOpenShortcuts={() => setKeyUIOpen(true)}
+      />
 
       {/* Middle: Canvas + Right panel */}
       <div ref={workAreaRef} className={styles.workArea} style={{ gridTemplateColumns: `1fr ${sideWidth}px` }}>
@@ -1249,59 +1215,33 @@ const SequenceLabeler: React.FC<{
               />
             )}
           </div>
-          {/* Timeline toolbar (above timeline) */}
-          <div ref={timelineBarRef} className={styles.timelineBar}>
-            <button
-              title="Prev frame"
-              onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
-              aria-label="Previous frame"
-            >
-              ←
-            </button>
-            <button
-              title="Next frame"
-              onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
-              aria-label="Next frame"
-            >
-              →
-            </button>
-            <span style={{ opacity: 0.85 }}>
-              Frame {totalFrames ? frame + 1 : "—"}/{totalFrames || "—"}
-            </span>
-            <button
-              title="Add keyframe at current (K)"
-              onClick={addKeyframeAtCurrent}
-              disabled={!oneSelected}
-              style={{ marginLeft: 8 }}
-            >
-              + Add Keyframe
-            </button>
-          </div>
-
-          <div ref={timelineWrapRef} className={styles.timelineWrap}>
-            <Timeline
-              total={totalFrames || 1}
-              frame={frame}
-              onSeek={scheduleSeek}
-              tracks={tracks}
-              labelSet={labelSet}
-              onDeleteKeyframe={deleteKeyframe}
-              onAddKeyframe={addKeyframe}
-              width={timelineWidth}
-              selectedIds={selectedIds}
-              onSelectTrack={(tid, additive) => {
-                setSelectedIds(prev => {
-                  if (additive) {
-                    const n = new Set(prev);
-                    if (n.has(tid)) n.delete(tid); else n.add(tid);
-                    return n;
-                  }
-                  return new Set([tid]);
-                });
-              }}
-              hiddenClasses={hiddenClasses}
-            />
-          </div>
+          <SLTimelineSection
+            timelineBarRef={timelineBarRef}
+            timelineWrapRef={timelineWrapRef}
+            frame={frame}
+            totalFrames={totalFrames}
+            onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+            onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+            onAddKeyframeAtCurrent={addKeyframeAtCurrent}
+            oneSelected={!!oneSelected}
+            timelineWidth={timelineWidth}
+            scheduleSeek={scheduleSeek}
+            tracks={tracks}
+            labelSet={labelSet}
+            selectedIds={selectedIds}
+            onSelectTrack={(tid, additive) => {
+              setSelectedIds(prev => {
+                if (additive) {
+                  const n = new Set(prev);
+                  if (n.has(tid)) n.delete(tid); else n.add(tid);
+                  return n;
+                }
+                return new Set([tid]);
+              });
+            }}
+            onDeleteKeyframe={deleteKeyframe}
+            onAddKeyframe={addKeyframe}
+          />
         </div>
 
         {/* Right panel */}
