@@ -25,6 +25,7 @@ import {
   rectAtFrame,
   handleAt,
   findKFIndexAtOrBefore,
+  rectFromKF,
   parseNumericKey,
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
@@ -959,7 +960,11 @@ const SequenceLabeler: React.FC<{
   function addKeyframe(trackId: string, f: number) {
     const t = tracks.find((t) => t.track_id === trackId);
     if (!t) return;
-    const r = rectAtFrame(t, f, interpolate);
+    let r = rectAtFrame(t, f, interpolate);
+    if (!r) {
+      const idx = findKFIndexAtOrBefore(t.keyframes, f);
+      if (idx >= 0) r = rectFromKF(t.keyframes[idx]);
+    }
     if (!r) return;
     applyTracks(
       (ts) =>
