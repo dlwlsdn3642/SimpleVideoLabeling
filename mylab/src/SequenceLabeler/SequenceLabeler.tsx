@@ -419,18 +419,6 @@ const SequenceLabeler: React.FC<{
     return () => ro.disconnect();
   }, []);
 
-  // keep side panel width within work area bounds
-  useEffect(() => {
-    if (!workAreaRef.current) return;
-    const el = workAreaRef.current;
-    const ro = new ResizeObserver((entries) => {
-      const width = entries[0].contentRect.width;
-      setSideWidth((w) => Math.min(w, width));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   // sync canvas scale to its wrapper size
   useEffect(() => {
     if (!meta || !canvasWrapRef.current) return;
@@ -1262,7 +1250,7 @@ const SequenceLabeler: React.FC<{
         ref={workAreaRef}
         className={styles.workArea}
         style={{
-          gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))`,
+          gridTemplateColumns: `1fr ${sideWidth}px`,
         }}
       >
         {/* Canvas + Timeline */}
