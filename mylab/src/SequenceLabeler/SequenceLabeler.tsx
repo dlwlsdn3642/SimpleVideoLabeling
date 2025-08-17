@@ -14,6 +14,7 @@ import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 const SequenceLabeler: React.FC<{
   framesBaseUrl: string;
   indexUrl: string;
+  taskId?: string;
   initialLabelSetName?: string;
   defaultClasses: string[];
   prefetchRadius?: number;
@@ -21,6 +22,7 @@ const SequenceLabeler: React.FC<{
 }> = ({
   framesBaseUrl,
   indexUrl,
+  taskId,
   initialLabelSetName = "Default",
   defaultClasses,
   prefetchRadius = 8,
@@ -89,8 +91,9 @@ const SequenceLabeler: React.FC<{
     "copy_tracks": "Ctrl+c",
     "paste_tracks": "Ctrl+v"
   };
+  const storagePrefix = taskId ?? indexUrl;
   const [keymap, setKeymap] = useState<KeyMap>(() => {
-    const raw = localStorage.getItem(`${indexUrl}::keymap_v2`);
+    const raw = localStorage.getItem(`${storagePrefix}::keymap_v2`);
     return raw ? JSON.parse(raw) : DEFAULT_KEYMAP;
   });
   const [keyUIOpen, setKeyUIOpen] = useState(false);
@@ -102,7 +105,7 @@ const SequenceLabeler: React.FC<{
 
   /** ===== Restore & Load ===== */
   useEffect(() => {
-    const raw = localStorage.getItem(`${indexUrl}::autosave_v2`);
+    const raw = localStorage.getItem(`${storagePrefix}::autosave_v2`);
     if (raw) {
       try {
         const s = JSON.parse(raw);
@@ -112,7 +115,7 @@ const SequenceLabeler: React.FC<{
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
       } catch {}
     }
-  }, [indexUrl]);
+  }, [storagePrefix]);
 
   useEffect(() => {
     let aborted = false;
@@ -145,13 +148,13 @@ const SequenceLabeler: React.FC<{
 
   useEffect(() => {
     const t = setTimeout(() => {
-      localStorage.setItem(`${indexUrl}::autosave_v2`, JSON.stringify({
+      localStorage.setItem(`${storagePrefix}::autosave_v2`, JSON.stringify({
         schema: DEFAULT_SCHEMA, version: DEFAULT_VERSION,
         meta, labelSet, tracks, frame, interpolate
       }));
     }, 300);
     return () => clearTimeout(t);
-  }, [meta, labelSet, tracks, frame, interpolate, indexUrl]);
+  }, [meta, labelSet, tracks, frame, interpolate, storagePrefix]);
 
   // observe timeline width
   useEffect(() => {

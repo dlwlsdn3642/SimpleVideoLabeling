@@ -31,3 +31,15 @@ export type KeyMap = Record<string, string>; // action -> key string
 export type LocalFile = { name: string; handle: FileSystemFileHandle; url: string };
 
 export type Handle = "none" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw" | "move";
+
+export type Task = {
+  id: string;
+  name: string;
+  workFolder: string; // path to task workspace
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  tasks: Task[];
+};
