@@ -151,6 +151,53 @@ const SequenceLabeler: React.FC<{
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
   const [needsImport, setNeedsImport] = useState(false);
 
+  const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
+    const entries: LocalFile[] = [];
+    // @ts-expect-error FileSystemDirectoryHandle.values is not yet typed
+    for await (const entry of (dir as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
+      if (entry.kind === "file") {
+        const name = String(entry.name);
+        if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
+        const file = await entry.getFile();
+        const url = URL.createObjectURL(file);
+        entries.push({ name, handle: entry as FileSystemFileHandle, url });
+      }
+    }
+    if (!entries.length) {
+      alert("이미지 파일이 없습니다.");
+      return;
+    }
+    entries.sort((a, b) => {
+      const na = parseNumericKey(a.name);
+      const nb = parseNumericKey(b.name);
+      if (Number.isNaN(na) && Number.isNaN(nb)) return a.name.localeCompare(b.name);
+      if (Number.isNaN(na)) return 1;
+      if (Number.isNaN(nb)) return -1;
+      return na - nb;
+    });
+
+    const first = await entries[0].handle.getFile();
+    const bmp = await createImageBitmap(first);
+    const m: IndexMeta = {
+      width: bmp.width,
+      height: bmp.height,
+      fps: 30,
+      count: entries.length,
+      files: entries.map(e => e.name)
+    };
+    setMeta(m);
+    setLocalFiles(entries);
+    setFiles([]);
+    cacheRef.current.clear();
+    setFrame(0);
+    setTimeout(() => {
+      if (!canvasWrapRef.current) return;
+      const { width } = canvasWrapRef.current.getBoundingClientRect();
+      const max = width / m.width;
+      setScale(fitWidth ? max : Math.min(1, max));
+    }, 0);
+  }, [fitWidth]);
+
   /** ===== Restore & Load ===== */
   useEffect(() => {
     const raw = localStorage.getItem(`${storagePrefix}::autosave_v2`);
@@ -736,53 +783,6 @@ const SequenceLabeler: React.FC<{
     }
     alert("YOLO 내보내기 완료");
   }
-
-  const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
-    const entries: LocalFile[] = [];
-    // @ts-expect-error FileSystemDirectoryHandle.values is not yet typed
-    for await (const entry of (dir as unknown as { values(): AsyncIterable<FileSystemHandle> }).values()) {
-      if (entry.kind === "file") {
-        const name = String(entry.name);
-        if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
-        const file = await entry.getFile();
-        const url = URL.createObjectURL(file);
-        entries.push({ name, handle: entry as FileSystemFileHandle, url });
-      }
-    }
-    if (!entries.length) {
-      alert("이미지 파일이 없습니다.");
-      return;
-    }
-    entries.sort((a, b) => {
-      const na = parseNumericKey(a.name);
-      const nb = parseNumericKey(b.name);
-      if (Number.isNaN(na) && Number.isNaN(nb)) return a.name.localeCompare(b.name);
-      if (Number.isNaN(na)) return 1;
-      if (Number.isNaN(nb)) return -1;
-      return na - nb;
-    });
-
-    const first = await entries[0].handle.getFile();
-    const bmp = await createImageBitmap(first);
-    const m: IndexMeta = {
-      width: bmp.width,
-      height: bmp.height,
-      fps: 30,
-      count: entries.length,
-      files: entries.map(e => e.name)
-    };
-    setMeta(m);
-    setLocalFiles(entries);
-    setFiles([]);
-    cacheRef.current.clear();
-    setFrame(0);
-    setTimeout(() => {
-      if (!canvasWrapRef.current) return;
-      const { width } = canvasWrapRef.current.getBoundingClientRect();
-      const max = width / m.width;
-      setScale(fitWidth ? max : Math.min(1, max));
-    }, 0);
-  }, [fitWidth]);
 
   async function importFolder() {
     if (!("showDirectoryPicker" in window)) {
