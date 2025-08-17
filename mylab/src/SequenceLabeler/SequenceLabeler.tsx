@@ -278,7 +278,15 @@ const SequenceLabeler: React.FC<{
                   DEFAULT_COLORS[i % DEFAULT_COLORS.length],
               ),
           });
-        if (s.tracks) setTracks(s.tracks);
+        if (s.tracks)
+          setTracks(
+            (s.tracks as Track[]).map((t) => ({
+              ...t,
+              presence_toggles: Array.isArray(t.presence_toggles)
+                ? t.presence_toggles
+                : [],
+            })),
+          );
         if (typeof s.frame === "number") setFrame(s.frame);
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
       } catch (err) {
