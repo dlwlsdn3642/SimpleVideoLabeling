@@ -12,6 +12,7 @@ import {
   findKFIndexAtOrBefore,
   parseNumericKey
 } from "../utils/geom";
+import { togglePresenceAtFrame } from "../utils/presence";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle } from "../utils/handles";
 
@@ -731,31 +732,7 @@ const SequenceLabeler: React.FC<{
     if (!selectedTracks.length) return;
     applyTracks(ts => ts.map(t => {
       if (!selectedIds.has(t.track_id)) return t;
-      const arr = [...t.presence_toggles];
-      const kfs = t.keyframes;
-      const idx = findKFIndexAtOrBefore(kfs, frame);
-      const toggle = (f: number) => {
-        const j = arr.indexOf(f);
-        if (j >= 0) arr.splice(j, 1); else arr.push(f);
-      };
-      if (idx >= 0 && kfs[idx].frame === frame) {
-        toggle(frame);
-        const nextKF = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
-        if (nextKF !== null) {
-          [nextKF, nextKF + 1].forEach(f => {
-            if (f !== frame) {
-              const j = arr.indexOf(f);
-              if (j >= 0) arr.splice(j, 1);
-            }
-          });
-        }
-      } else {
-        const prev = idx >= 0 ? kfs[idx].frame : null;
-        const next = idx + 1 < kfs.length ? kfs[idx + 1].frame : null;
-        if (prev !== null) toggle(prev);
-        if (next !== null) toggle(next);
-      }
-      arr.sort((a, b) => a - b);
+      const arr = togglePresenceAtFrame(t.presence_toggles, t.keyframes, frame);
       return { ...t, presence_toggles: arr };
     }), true);
   }
