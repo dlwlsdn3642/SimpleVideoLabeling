@@ -24,10 +24,8 @@
   --text-muted: rgba(255,255,255,0.85);
   /* Layout */
   --timeline-height: clamp(120px, 24vh, 280px);
-  /* Right panel sizing */
-  /* Right panel sizing (slightly larger minimum to avoid crowding) */
+  /* Right panel minimum width to avoid crowding */
   --right-min: clamp(128px, 16vw, 220px);
-  --right-max: min(36vw, 420px);
   --seek-min: clamp(120px, 20vw, 280px);
 }
 

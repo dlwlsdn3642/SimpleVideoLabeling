@@ -346,14 +346,21 @@ const SequenceLabeler: React.FC<{
         const v = parseInt(raw, 10);
         if (!Number.isNaN(v)) setTimelineHeight(v);
       }
-    } catch {/* ignore */}
+    } catch {
+      /* ignore */
+    }
   }, [storagePrefix]);
   useEffect(() => {
     if (timelineHeight == null) return;
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(`${storagePrefix}::timeline_h`, String(timelineHeight));
-      } catch {/* ignore */}
+        localStorage.setItem(
+          `${storagePrefix}::timeline_h`,
+          String(timelineHeight),
+        );
+      } catch {
+        /* ignore */
+      }
     }, 200);
     return () => clearTimeout(t);
   }, [timelineHeight, storagePrefix]);
@@ -405,61 +412,41 @@ const SequenceLabeler: React.FC<{
     const el = timelineWrapRef.current;
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0].contentRect;
-      setTimelineWidth(Math.max(300, cr.width - 24)); // padding 12*2
+      const next = Math.max(300, cr.width - 24); // padding 12*2
+      requestAnimationFrame(() => setTimelineWidth(next));
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // adjust side panel width to fill canvas height
+  // sync canvas scale to its wrapper size
   useEffect(() => {
-    if (!meta || !workAreaRef.current) return;
-    const el = workAreaRef.current;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const timelineH =
-        timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
-      const toolbarH =
-        timelineBarRef.current?.getBoundingClientRect().height ?? 0;
-      const resizerH =
-        timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
-      const totalW = rect.width;
-      const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
-      if (totalW <= 0) return;
-      // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
-      const safeAvailH = Math.max(0, availH);
-      const desiredCanvasW = safeAvailH * (meta.width / meta.height);
-      // Compute responsive constraints equivalent to CSS vars
-      const vw = Math.max(320, rect.width || window.innerWidth || totalW);
-      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16)); // clamp(128px, 16vw, 220px)
-      const rightMaxPx = Math.min(vw * 0.36, 420);                // min(36vw, 420px)
-      let newSide = totalW - desiredCanvasW;
-      // bound using JS-calculated min/max to match CSS clamp()
-      newSide = Math.min(Math.max(newSide, rightMinPx), Math.min(rightMaxPx, totalW));
-      const canvasW = Math.max(0, totalW - newSide);
-      // Never let canvas height exceed available height
-      const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
-      const scaleByW = canvasW / meta.width;
-      const nextScale = Math.min(scaleByH > 0 ? scaleByH : scale, scaleByW);
-      setSideWidth(newSide);
-      setScale(nextScale);
+    if (!meta || !canvasWrapRef.current) return;
+    const el = canvasWrapRef.current;
+    let raf = 0;
+
+    const update = (entry?: ResizeObserverEntry) => {
+      const rect = entry ? entry.contentRect : el.getBoundingClientRect();
+      const nextScale = Math.min(
+        rect.width / meta.width,
+        rect.height / meta.height,
+      );
+      if (!raf) {
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          setScale(nextScale);
+        });
+      }
     };
+
     update();
-    const ro = new ResizeObserver(update);
-    const roTimeline = new ResizeObserver(update);
-    const roBar = new ResizeObserver(update);
-    const roResizer = new ResizeObserver(update);
+    const ro = new ResizeObserver((entries) => update(entries[0]));
     ro.observe(el);
-    if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
-    if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
-    if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
-      roTimeline.disconnect();
-      roBar.disconnect();
-      roResizer.disconnect();
+      cancelAnimationFrame(raf);
     };
-  }, [meta, timelineHeight]);
+  }, [meta]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(
@@ -513,10 +500,14 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     const c = canvasRef.current;
     if (!c || !meta) return;
-    const W = Math.round(meta.width * scale);
-    const H = Math.round(meta.height * scale);
+    const rect = c.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.round(rect.width * dpr);
+    const H = Math.round(rect.height * dpr);
     if (c.width !== W) c.width = W;
     if (c.height !== H) c.height = H;
+    const ctx = c.getContext("2d");
+    if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }, [meta, scale]);
 
   /** ===== Drawing ===== */
@@ -534,10 +525,15 @@ const SequenceLabeler: React.FC<{
         : await getImage(frame);
       if (cancelled || !bmp) return;
 
+      const rect = c.getBoundingClientRect();
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = "#111";
-      ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      const drawW = meta.width * scale;
+      const drawH = meta.height * scale;
+      const offsetX = (rect.width - drawW) / 2;
+      const offsetY = 0;
+      ctx.drawImage(bmp, offsetX, offsetY, drawW, drawH);
 
       const drawRect = (
         r: RectPX,
@@ -545,8 +541,8 @@ const SequenceLabeler: React.FC<{
         alpha = 1,
         dashed = false,
       ) => {
-        const x = r.x * scale,
-          y = r.y * scale,
+        const x = r.x * scale + offsetX,
+          y = r.y * scale + offsetY,
           w = r.w * scale,
           h = r.h * scale;
         ctx.save();
@@ -598,8 +594,8 @@ const SequenceLabeler: React.FC<{
         const cls = labelSet.classes[t.class_id] ?? t.class_id;
         const tag = `${cls}${t.name ? ` (${t.name})` : ""}`;
         ctx.font = "12px monospace";
-        const x = r.x * scale,
-          y = r.y * scale,
+        const x = r.x * scale + offsetX,
+          y = r.y * scale + offsetY,
           w = ctx.measureText(tag).width + 8;
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.5;
@@ -610,8 +606,8 @@ const SequenceLabeler: React.FC<{
         ctx.restore();
       }
       if (dragRef.current.creating && draftRect) {
-        const x = draftRect.x * scale,
-          y = draftRect.y * scale,
+        const x = draftRect.x * scale + offsetX,
+          y = draftRect.y * scale + offsetY,
           w = draftRect.w * scale,
           h = draftRect.h * scale;
         ctx.save();
@@ -652,16 +648,16 @@ const SequenceLabeler: React.FC<{
   // Track Shift pressed state for cursor affordance
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftHeld(true);
+      if (e.key === "Shift") setShiftHeld(true);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftHeld(false);
+      if (e.key === "Shift") setShiftHeld(false);
     };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
     };
   }, []);
   useEffect(() => {
@@ -769,9 +765,11 @@ const SequenceLabeler: React.FC<{
   /** ===== Mouse (edit) ===== */
   const toImgCoords = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = (ev.target as HTMLCanvasElement).getBoundingClientRect();
+    const offsetX = (rect.width - meta!.width * scale) / 2;
+    const offsetY = 0;
     return {
-      mx: (ev.clientX - rect.left) / scale,
-      my: (ev.clientY - rect.top) / scale,
+      mx: (ev.clientX - rect.left - offsetX) / scale,
+      my: (ev.clientY - rect.top - offsetY) / scale,
     };
   };
   function ensureKFAt(t: Track, f: number, r: RectPX): Track {
@@ -1014,7 +1012,8 @@ const SequenceLabeler: React.FC<{
           const kfs = [...tt.keyframes];
           const prevIdx = findKFIndexAtOrBefore(kfs, f);
           if (prevIdx >= 0 && kfs[prevIdx].absent) {
-            if (kfs[prevIdx].frame === f) kfs[prevIdx] = { ...kfs[prevIdx], absent: false };
+            if (kfs[prevIdx].frame === f)
+              kfs[prevIdx] = { ...kfs[prevIdx], absent: false };
             else kfs.splice(prevIdx, 1);
           }
           const updated = { ...tt, keyframes: kfs };
@@ -1250,14 +1249,13 @@ const SequenceLabeler: React.FC<{
       <div
         ref={workAreaRef}
         className={styles.workArea}
-        style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
+        style={{
+          gridTemplateColumns: `1fr ${sideWidth}px`,
+        }}
       >
         {/* Canvas + Timeline */}
         <div className={styles.canvasColumn}>
-          <div
-            ref={canvasWrapRef}
-            className={styles.canvasWrap}
-          >
+          <div ref={canvasWrapRef} className={styles.canvasWrap}>
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
@@ -1265,13 +1263,14 @@ const SequenceLabeler: React.FC<{
                 ref={canvasRef}
                 className={styles.canvasEl}
                 style={{
-                  aspectRatio: meta ? `${meta.width} / ${meta.height}` : undefined,
                   cursor:
-                    dragHandle !== 'none'
+                    dragHandle !== "none"
                       ? handleCursor(dragHandle, true)
-                      : hoverHandle !== 'none'
+                      : hoverHandle !== "none"
                         ? handleCursor(hoverHandle, false)
-                        : (shiftHeld ? 'crosshair' : 'default'),
+                        : shiftHeld
+                          ? "crosshair"
+                          : "default",
                 }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -1286,8 +1285,12 @@ const SequenceLabeler: React.FC<{
             timelineHeight={timelineHeight}
             frame={frame}
             totalFrames={totalFrames}
-            onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
-            onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+            onPrevFrame={() =>
+              setFrame((f) => clamp(f - 1, 0, totalFrames - 1))
+            }
+            onNextFrame={() =>
+              setFrame((f) => clamp(f + 1, 0, totalFrames - 1))
+            }
             onAddKeyframeAtCurrent={addKeyframeAtCurrent}
             oneSelected={!!oneSelected}
             timelineWidth={timelineWidth}
@@ -1296,10 +1299,11 @@ const SequenceLabeler: React.FC<{
             labelSet={labelSet}
             selectedIds={selectedIds}
             onSelectTrack={(tid, additive) => {
-              setSelectedIds(prev => {
+              setSelectedIds((prev) => {
                 if (additive) {
                   const n = new Set(prev);
-                  if (n.has(tid)) n.delete(tid); else n.add(tid);
+                  if (n.has(tid)) n.delete(tid);
+                  else n.add(tid);
                   return n;
                 }
                 return new Set([tid]);
@@ -1312,12 +1316,19 @@ const SequenceLabeler: React.FC<{
             onStartResize={(ev) => {
               ev.preventDefault();
               const startY = ev.clientY;
-              const startH = timelineWrapRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
+              const startH =
+                timelineWrapRef.current?.getBoundingClientRect().height ??
+                timelineHeight ??
+                200;
               const workRect = workAreaRef.current?.getBoundingClientRect();
-              const toolbarH = timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+              const toolbarH =
+                timelineBarRef.current?.getBoundingClientRect().height ?? 0;
               const totalH = workRect?.height ?? 0;
               const minH = 80;
-              const maxH = Math.max(minH, Math.min((totalH - toolbarH) - 120, 600));
+              const maxH = Math.max(
+                minH,
+                Math.min(totalH - toolbarH - 120, 600),
+              );
               const onMove = (e: MouseEvent) => {
                 const dy = e.clientY - startY;
                 // Resizer is above the timeline: moving down should reduce height
@@ -1325,18 +1336,18 @@ const SequenceLabeler: React.FC<{
                 setTimelineHeight(next);
               };
               const onUp = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
+                window.removeEventListener("mousemove", onMove);
+                window.removeEventListener("mouseup", onUp);
               };
-              window.addEventListener('mousemove', onMove);
-              window.addEventListener('mouseup', onUp);
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
             }}
           />
         </div>
 
         {/* Right panel */}
-          <SLRightPanel
-            labelSet={labelSet}
+        <SLRightPanel
+          labelSet={labelSet}
           setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
           availableSets={availableSets}
           setAvailableSets={setAvailableSets}
