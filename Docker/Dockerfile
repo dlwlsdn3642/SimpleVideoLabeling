@@ -50,4 +50,4 @@ ENV OMP_NUM_THREADS=1 \
 EXPOSE 7000
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-CMD ["micromamba", "run", "-n", "transt", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7000"]
+CMD ["micromamba", "run", "-n", "transt", "uvicorn", "transt_server:app", "--host", "0.0.0.0", "--port", "7000"]
