@@ -33,8 +33,16 @@ export default function App() {
       const files = input.files;
       if (!files || !files.length) return;
       const file = files[0] as File & { path?: string; webkitRelativePath?: string };
-      const fullPath = file.path ?? file.webkitRelativePath ?? "";
-      const folder = fullPath.split(/[/\\]/).slice(0, -1).join("/");
+      const relPath = file.webkitRelativePath ?? "";
+      let folder = "";
+      if (file.path && relPath) {
+        const base = file.path.slice(0, file.path.length - relPath.length);
+        const top = relPath.split(/[/\\]/)[0];
+        folder = `${base}${top}`.replace(/\\/g, "/").replace(/\/$/, "");
+      } else if (relPath) {
+        // webkitRelativePath includes the top-level directory selected by the user
+        folder = relPath.split(/[/\\]/)[0];
+      }
       if (folder) {
         const t = pm.current.addTask(currentProject.id, name, folder);
         refresh();
