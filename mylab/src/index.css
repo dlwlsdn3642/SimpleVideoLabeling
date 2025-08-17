@@ -11,6 +11,17 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Design tokens */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --border: #222;
+  --border-weak: #333;
+  --bg: #0b0b0b;
+  --bg-alt: #111;
+  --text-muted: rgba(255,255,255,0.85);
 }
 
 a {
@@ -26,6 +37,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden; /* prevent page scroll; use panel-level scrolling */
 }
 
 #root {

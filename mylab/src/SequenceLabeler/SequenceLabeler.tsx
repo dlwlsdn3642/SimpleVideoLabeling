@@ -8,7 +8,11 @@ import React, {
 } from "react";
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
-import { Timeline, TrackPanel, ShortcutModal } from "../components";
+import { TrackPanel, ShortcutModal } from "../components";
+import styles from "./SequenceLabeler.module.css";
+import SLTopBar from "./SLTopBar";
+import SLTimelineSection from "./SLTimelineSection";
+import SLRightPanel from "./SLRightPanel";
 import type {
   IndexMeta,
   RectPX,
@@ -396,14 +400,16 @@ const SequenceLabeler: React.FC<{
         timelineBarRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
       const availH = Math.max(0, rect.height - timelineH - toolbarH);
-      if (availH <= 0 || totalW <= 0) return;
-      const desiredCanvasW = availH * (meta.width / meta.height);
+      if (totalW <= 0) return;
+      // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
+      const safeAvailH = Math.max(0, availH);
+      const desiredCanvasW = safeAvailH * (meta.width / meta.height);
       let newSide = totalW - desiredCanvasW;
       if (newSide < MIN_SIDE_WIDTH) newSide = MIN_SIDE_WIDTH;
       if (newSide > totalW) newSide = totalW;
       const canvasW = totalW - newSide;
       setSideWidth(newSide);
-      setScale(canvasW / meta.width);
+      setScale(safeAvailH > 0 ? canvasW / meta.width : Math.min(scale, canvasW / meta.width));
     };
     update();
     const ro = new ResizeObserver(update);
@@ -1165,100 +1171,33 @@ const SequenceLabeler: React.FC<{
   }, [storagePrefix, meta, labelSet, tracks, frame, interpolate, showGhosts]);
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateRows: "auto 1fr auto auto",
-        height: "100%",
-        background: "#0b0b0b",
-        color: "#e7e7e7",
-        fontFamily: "Inter, ui-monospace, Menlo, Consolas",
-      }}
-    >
-      {/* Top bar */}
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          alignItems: "center",
-          padding: "8px 12px",
-          borderBottom: "1px solid #222",
-          flexWrap: "wrap",
-        }}
-      >
-        {leftTopExtra ? (
-          <div style={{ marginRight: 8, display: "flex", alignItems: "center" }}>
-            {leftTopExtra}
-          </div>
-        ) : null}
-        <button
-          onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
-        >
-          ←
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, totalFrames - 1)}
-          value={frame}
-          onChange={(e) => setFrame(parseInt(e.target.value))}
-          style={{ flex: 1, minWidth: 180 }}
-        />
-        <button
-          onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
-        >
-          →
-        </button>
-        <button onClick={() => setPlaying((p) => !p)}>
-          {playing ? "Pause" : "Play"}
-        </button>
-        <span style={{ opacity: 0.85 }}>
-          Frame {frame + 1}/{totalFrames || "—"}
-        </span>
-
-        {/* Removed duplicate Interp toggle (right panel has the control) */}
-
-        <button
-          onClick={togglePresenceAtCurrent}
-          disabled={!selectedTracks.length}
-        >
-          Toggle Presence (N)
-        </button>
-
-        <button style={{ marginLeft: "auto" }} onClick={importFolder}>
-          Import Folder
-        </button>
-        {needsImport && (
-          <span style={{ color: "#f66" }}>Load failed. Use Import Folder.</span>
-        )}
-        <button onClick={saveNow}>Save</button>
-        <button onClick={exportJSON}>Export JSON</button>
-        <button onClick={exportYOLO}>Export YOLO</button>
-        <button onClick={() => setKeyUIOpen(true)}>Shortcuts</button>
-      </div>
+    <div className={styles.container}>
+      <SLTopBar
+        leftTopExtra={leftTopExtra}
+        frame={frame}
+        totalFrames={totalFrames}
+        playing={playing}
+        onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+        onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+        onSeek={(val) => setFrame(val)}
+        onTogglePlay={() => setPlaying((p) => !p)}
+        onTogglePresence={togglePresenceAtCurrent}
+        canTogglePresence={!!selectedTracks.length}
+        onImportFolder={importFolder}
+        needsImport={needsImport}
+        onSave={saveNow}
+        onExportJSON={exportJSON}
+        onExportYOLO={exportYOLO}
+        onOpenShortcuts={() => setKeyUIOpen(true)}
+      />
 
       {/* Middle: Canvas + Right panel */}
-      <div
-        ref={workAreaRef}
-        style={{
-          display: "grid",
-          gridTemplateColumns: `1fr ${sideWidth}px`,
-          minHeight: 0,
-        }}
-      >
+      <div ref={workAreaRef} className={styles.workArea} style={{ gridTemplateColumns: `1fr ${sideWidth}px` }}>
         {/* Canvas + Timeline */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateRows: "1fr auto auto",
-            background: "#111",
-            minWidth: 0,
-            minHeight: 0,
-          }}
-        >
+        <div className={styles.canvasColumn}>
           <div
             ref={canvasWrapRef}
-            style={{ display: "grid", placeItems: "center", width: "100%" }}
+            className={styles.canvasWrap}
           >
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
@@ -1279,300 +1218,57 @@ const SequenceLabeler: React.FC<{
               />
             )}
           </div>
-          {/* Timeline toolbar (above timeline) */}
-          <div
-            ref={timelineBarRef}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "6px 12px",
-              borderTop: "1px solid #222",
+          <SLTimelineSection
+            timelineBarRef={timelineBarRef}
+            timelineWrapRef={timelineWrapRef}
+            frame={frame}
+            totalFrames={totalFrames}
+            onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
+            onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+            onAddKeyframeAtCurrent={addKeyframeAtCurrent}
+            oneSelected={!!oneSelected}
+            timelineWidth={timelineWidth}
+            scheduleSeek={scheduleSeek}
+            tracks={tracks}
+            labelSet={labelSet}
+            selectedIds={selectedIds}
+            onSelectTrack={(tid, additive) => {
+              setSelectedIds(prev => {
+                if (additive) {
+                  const n = new Set(prev);
+                  if (n.has(tid)) n.delete(tid); else n.add(tid);
+                  return n;
+                }
+                return new Set([tid]);
+              });
             }}
-          >
-            <button
-              title="Prev frame"
-              onClick={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
-            >
-              ←
-            </button>
-            <button
-              title="Next frame"
-              onClick={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
-            >
-              →
-            </button>
-            <span style={{ opacity: 0.85 }}>
-              Frame {totalFrames ? frame + 1 : "—"}/{totalFrames || "—"}
-            </span>
-            <button
-              title="Add keyframe at current (K)"
-              onClick={addKeyframeAtCurrent}
-              disabled={!oneSelected}
-              style={{ marginLeft: 8 }}
-            >
-              + Add Keyframe
-            </button>
-          </div>
-
-          <div
-            ref={timelineWrapRef}
-            style={{ padding: "6px 12px", borderTop: "1px solid #222" }}
-          >
-            <Timeline
-              total={totalFrames || 1}
-              frame={frame}
-              onSeek={scheduleSeek}
-              tracks={tracks}
-              labelSet={labelSet}
-              onDeleteKeyframe={deleteKeyframe}
-              onAddKeyframe={addKeyframe}
-              width={timelineWidth}
-              selectedIds={selectedIds}
-              onSelectTrack={(tid, additive) => {
-                setSelectedIds(prev => {
-                  if (additive) {
-                    const n = new Set(prev);
-                    if (n.has(tid)) n.delete(tid); else n.add(tid);
-                    return n;
-                  }
-                  return new Set([tid]);
-                });
-              }}
-              hiddenClasses={hiddenClasses}
-            />
-          </div>
+            onDeleteKeyframe={deleteKeyframe}
+            onAddKeyframe={addKeyframe}
+            hiddenClasses={hiddenClasses}
+            rowHeight={16}
+          />
         </div>
 
         {/* Right panel */}
-        <div
-          style={{
-            borderLeft: "1px solid #222",
-            padding: 8,
-            overflow: "auto",
-            minWidth: MIN_SIDE_WIDTH,
-            display: "flex",
-            flexDirection: "column",
-            minHeight: 0,
-          }}
-        >
-          {/* View options */}
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={showGhosts}
-                onChange={(e) => setShowGhosts(e.target.checked)}
-              />
-              <span>Show ghosts (prev/next)</span>
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={interpolate}
-                onChange={(e) => setInterpolate(e.target.checked)}
-              />
-              <span>Interpolate</span>
-            </label>
-          </div>
-          {/* Label set */}
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Label Set</div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <select
-                value={labelSet.name}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  const raw = localStorage.getItem("sequence_label_sets_v1");
-                  if (!raw) return;
-                  try {
-                    const sets: LabelSet[] = JSON.parse(raw);
-                    const s = sets.find((x) => x.name === name);
-                    if (s)
-                      setLabelSet({
-                        name: s.name,
-                        classes: [...s.classes],
-                        colors:
-                          s.colors ??
-                          s.classes.map(
-                            (_: unknown, i: number) =>
-                              DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-                          ),
-                      });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-              >
-                <option value={labelSet.name}>{labelSet.name}</option>
-                {availableSets
-                  .filter((s) => s.name !== labelSet.name)
-                  .map((s) => (
-                    <option key={s.name} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-              </select>
-              <button
-                onClick={() => {
-                  const name = prompt(
-                    "Save label set as:",
-                    labelSet.name || "Set",
-                  );
-                  if (name) {
-                    const sets = [
-                      ...availableSets.filter((s) => s.name !== name),
-                      {
-                        name,
-                        classes: labelSet.classes,
-                        colors: labelSet.colors,
-                      },
-                    ];
-                    setAvailableSets(sets);
-                    localStorage.setItem(
-                      "sequence_label_sets_v1",
-                      JSON.stringify(sets),
-                    );
-                    setLabelSet({ ...labelSet, name });
-                  }
-                }}
-              >
-                Save
-              </button>
-            </div>
-            {/* Classes editor */}
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Classes</div>
-              {labelSet.classes.map((c, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    marginBottom: 4,
-                    alignItems: "center",
-                  }}
-                >
-                  <span style={{ width: 22, opacity: 0.8 }}>{i + 1}.</span>
-                  <input
-                    value={c}
-                    onChange={(e) =>
-                      setLabelSet((s) => ({
-                        ...s,
-                        classes: s.classes.map((x, idx) =>
-                          idx === i ? e.target.value : x,
-                        ),
-                      }))
-                    }
-                  />
-                  <input
-                    type="color"
-                    value={labelSet.colors[i]}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      startTransition(() => {
-                        setLabelSet((s) => ({
-                          ...s,
-                          colors: s.colors.map((col, idx) =>
-                            idx === i ? val : col,
-                          ),
-                        }));
-                      });
-                    }}
-                  />
-                  <button
-                    onClick={() =>
-                      setLabelSet((s) => ({
-                        ...s,
-                        classes: s.classes.filter((_, idx) => idx !== i),
-                        colors: s.colors.filter((_, idx) => idx !== i),
-                      }))
-                    }
-                  >
-                    -
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() =>
-                  setLabelSet((s) => ({
-                    ...s,
-                    classes: [...s.classes, `Class${s.classes.length + 1}`],
-                    colors: [
-                      ...s.colors,
-                      DEFAULT_COLORS[s.colors.length % DEFAULT_COLORS.length],
-                    ],
-                  }))
-                }
-              >
-                + Add Class
-              </button>
-            </div>
-          </div>
-
-          {/* Tracks */}
-          <div style={{ borderTop: "1px solid #222", paddingTop: 8 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <div style={{ fontWeight: 600 }}>Tracks</div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button
-                  onClick={copySelectedTracks}
-                  disabled={!selectedTracks.length}
-                >
-                  Copy
-                </button>
-                <button
-                  onClick={pasteTracks}
-                  disabled={!clipboardRef.current?.length}
-                >
-                  Paste
-                </button>
-                <button
-                  onClick={() => {
-                    applyTracks(() => [], true);
-                    setSelectedIds(new Set());
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            <TrackPanel
-              labelSet={labelSet}
-              tracks={tracks}
-              selectedIds={selectedIds}
-              setSelectedIds={setSelectedIds}
-              setTracks={applyTracks}
-              hiddenClasses={hiddenClasses}
-              setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
-            />
-
-          </div>
-          {/* Bottom-pinned help within the right panel */}
-          <div
-            style={{
-              position: "sticky",
-              bottom: 0,
-              marginTop: "auto",
-              padding: "6px 8px",
-              borderTop: "1px solid #222",
-              fontSize: 12,
-              opacity: 0.85,
-              background: "#0b0b0b",
-            }}
-          >
-            Frames: ←/→ ±1, Shift+←/Shift+→ ±10, Ctrl+←/Ctrl+→ ±100, Space Play ·
-            KF: K add, Shift+K del, , prev, . next · Presence: N toggle ·
-            View: I interpolate, G ghosts · Multi-move: Alt+드래그 · Copy/Paste: Ctrl+C / Ctrl+V · 1~9 pick class
-          </div>
-        </div>
+        <SLRightPanel
+          labelSet={labelSet}
+          setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
+          availableSets={availableSets}
+          setAvailableSets={setAvailableSets}
+          tracks={tracks}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          applyTracks={applyTracks}
+          hiddenClasses={hiddenClasses}
+          setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
+          showGhosts={showGhosts}
+          setShowGhosts={setShowGhosts}
+          interpolate={interpolate}
+          setInterpolate={setInterpolate}
+          onCopySelectedTracks={copySelectedTracks}
+          onPasteTracks={pasteTracks}
+          canPaste={!!clipboardRef.current?.length}
+        />
       </div>
 
       {/* Bottom help removed (relocated into right panel) */}
