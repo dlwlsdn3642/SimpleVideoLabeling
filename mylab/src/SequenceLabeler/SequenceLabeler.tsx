@@ -6,7 +6,7 @@ import TrackPanel from "../components/TrackPanel";
 import ShortcutModal from "../components/ShortcutModal";
 import type { IndexMeta, RectPX, Track, LabelSet, KeyMap, LocalFile, Handle } from "../types";
 import {
-  clamp, pad, uuid, rectAtFrame, handleAt, parseNumericKey,
+  clamp, pad, uuid, rectAtFrame, handleAt,
   findKFIndexAtOrBefore
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
@@ -14,6 +14,7 @@ import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 const SequenceLabeler: React.FC<{
   framesBaseUrl: string;
   indexUrl: string;
+  taskId?: string;
   initialLabelSetName?: string;
   defaultClasses: string[];
   prefetchRadius?: number;
@@ -21,6 +22,7 @@ const SequenceLabeler: React.FC<{
 }> = ({
   framesBaseUrl,
   indexUrl,
+  taskId,
   initialLabelSetName = "Default",
   defaultClasses,
   prefetchRadius = 8,
@@ -29,7 +31,7 @@ const SequenceLabeler: React.FC<{
   // media
   const [meta, setMeta] = useState<IndexMeta | null>(null);
   const [files, setFiles] = useState<string[]>([]);
-  const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
+  const [localFiles] = useState<LocalFile[] | null>(null);
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -89,8 +91,9 @@ const SequenceLabeler: React.FC<{
     "copy_tracks": "Ctrl+c",
     "paste_tracks": "Ctrl+v"
   };
+  const storagePrefix = taskId ?? indexUrl;
   const [keymap, setKeymap] = useState<KeyMap>(() => {
-    const raw = localStorage.getItem(`${indexUrl}::keymap_v2`);
+    const raw = localStorage.getItem(`${storagePrefix}::keymap_v2`);
     return raw ? JSON.parse(raw) : DEFAULT_KEYMAP;
   });
   const [keyUIOpen, setKeyUIOpen] = useState(false);
@@ -102,7 +105,7 @@ const SequenceLabeler: React.FC<{
 
   /** ===== Restore & Load ===== */
   useEffect(() => {
-    const raw = localStorage.getItem(`${indexUrl}::autosave_v2`);
+    const raw = localStorage.getItem(`${storagePrefix}::autosave_v2`);
     if (raw) {
       try {
         const s = JSON.parse(raw);
@@ -112,7 +115,7 @@ const SequenceLabeler: React.FC<{
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
       } catch {}
     }
-  }, [indexUrl]);
+  }, [storagePrefix]);
 
   useEffect(() => {
     let aborted = false;
@@ -145,13 +148,13 @@ const SequenceLabeler: React.FC<{
 
   useEffect(() => {
     const t = setTimeout(() => {
-      localStorage.setItem(`${indexUrl}::autosave_v2`, JSON.stringify({
+      localStorage.setItem(`${storagePrefix}::autosave_v2`, JSON.stringify({
         schema: DEFAULT_SCHEMA, version: DEFAULT_VERSION,
         meta, labelSet, tracks, frame, interpolate
       }));
     }, 300);
     return () => clearTimeout(t);
-  }, [meta, labelSet, tracks, frame, interpolate, indexUrl]);
+  }, [meta, labelSet, tracks, frame, interpolate, storagePrefix]);
 
   // observe timeline width
   useEffect(() => {
@@ -633,48 +636,6 @@ const SequenceLabeler: React.FC<{
     alert("YOLO 내보내기 완료");
   }
 
-  /** ===== Folder import ===== */
-  async function importFolder() {
-    // @ts-ignore
-    if (!("showDirectoryPicker" in window)) { alert("Chromium 계열 브라우저에서 사용하세요."); return; }
-    // @ts-ignore
-    const dir: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ id: "frames-folder" });
-    const entries: LocalFile[] = [];
-    // @ts-ignore
-    for await (const entry of (dir as any).values()) {
-      if (entry.kind === "file") {
-        const name = String(entry.name);
-        if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
-        const file = await entry.getFile();
-        const url = URL.createObjectURL(file);
-        entries.push({ name, handle: entry, url });
-      }
-    }
-    if (!entries.length) { alert("이미지 파일이 없습니다."); return; }
-    entries.sort((a, b) => {
-      const na = parseNumericKey(a.name), nb = parseNumericKey(b.name);
-      if (Number.isNaN(na) && Number.isNaN(nb)) return a.name.localeCompare(b.name);
-      if (Number.isNaN(na)) return 1;
-      if (Number.isNaN(nb)) return -1;
-      return na - nb;
-    });
-
-    const first = await entries[0].handle.getFile();
-    const bmp = await createImageBitmap(first);
-    const m: IndexMeta = { width: bmp.width, height: bmp.height, fps: 30, count: entries.length, files: entries.map(e => e.name) };
-    setMeta(m);
-    setLocalFiles(entries);
-    setFiles([]);
-    cacheRef.current.clear();
-    setFrame(0);
-    setTimeout(() => {
-      if (!canvasWrapRef.current) return;
-      const { width } = canvasWrapRef.current.getBoundingClientRect();
-      const max = width / m.width;
-      setScale(Math.min(1, max));
-    }, 0);
-  }
-
   /** ===== RAF-throttled seek for timeline ===== */
   const seekRaf = useRef<number | null>(null);
   const pendingSeek = useRef<number | null>(null);
@@ -711,8 +672,7 @@ const SequenceLabeler: React.FC<{
 
         <button onClick={togglePresenceAtCurrent} disabled={!selectedTracks.length}>Toggle Presence (N)</button>
 
-        <button style={{ marginLeft: "auto" }} onClick={importFolder}>Import Folder</button>
-        <button onClick={exportJSON}>Export JSON</button>
+        <button style={{ marginLeft: "auto" }} onClick={exportJSON}>Export JSON</button>
         <button onClick={exportYOLO}>Export YOLO</button>
         <button onClick={() => setKeyUIOpen(true)}>Shortcuts</button>
       </div>
