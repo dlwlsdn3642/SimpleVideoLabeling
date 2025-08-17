@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
-import Timeline from "../components/Timeline";
-import TrackPanel from "../components/TrackPanel";
-import ShortcutModal from "../components/ShortcutModal";
+import { Timeline, TrackPanel, ShortcutModal } from "../components";
 import type { IndexMeta, RectPX, Track, LabelSet, KeyMap, LocalFile, Handle } from "../types";
 import {
   clamp, pad, uuid, rectAtFrame, handleAt,
