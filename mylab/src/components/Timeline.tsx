@@ -123,7 +123,7 @@ const Timeline: React.FC<Props> = ({
         for (let i = 0; i < kfs.length; i++) {
           const curr = kfs[i];
           const nextF = i + 1 < kfs.length ? kfs[i + 1].frame : total;
-          const end = curr.absent ? curr.frame + 1 : nextF;
+          const end = curr.absent ? curr.frame : Math.min(nextF + 1, total);
           if (end > curr.frame) segs.push([curr.frame, end]);
         }
         return (
