@@ -23,7 +23,7 @@
 
 .canvasColumn {
   display: grid;
-  grid-template-rows: 1fr auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   background: var(--bg-alt);
   min-width: 0;
   min-height: 0;
@@ -46,8 +46,9 @@
 .timelineWrap {
   padding: 6px 12px;
   border-top: 1px solid var(--border);
-  max-height: 30vh;
+  height: 160px; /* fixed visible timeline height */
   overflow: auto;
+  box-sizing: border-box;
 }
 
 .seekRange {

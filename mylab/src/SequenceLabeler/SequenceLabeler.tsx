@@ -400,14 +400,16 @@ const SequenceLabeler: React.FC<{
         timelineBarRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
       const availH = Math.max(0, rect.height - timelineH - toolbarH);
-      if (availH <= 0 || totalW <= 0) return;
-      const desiredCanvasW = availH * (meta.width / meta.height);
+      if (totalW <= 0) return;
+      // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
+      const safeAvailH = Math.max(0, availH);
+      const desiredCanvasW = safeAvailH * (meta.width / meta.height);
       let newSide = totalW - desiredCanvasW;
       if (newSide < MIN_SIDE_WIDTH) newSide = MIN_SIDE_WIDTH;
       if (newSide > totalW) newSide = totalW;
       const canvasW = totalW - newSide;
       setSideWidth(newSide);
-      setScale(canvasW / meta.width);
+      setScale(safeAvailH > 0 ? canvasW / meta.width : Math.min(scale, canvasW / meta.width));
     };
     update();
     const ro = new ResizeObserver(update);
