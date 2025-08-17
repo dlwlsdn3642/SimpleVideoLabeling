@@ -83,5 +83,19 @@ describe('rectAtFrame', () => {
     t.keyframes[1].absent = false;
     expect(rectAtFrame(t, 6)).toEqual({ x: 2, y: 2, w: 10, h: 10 });
   });
+
+  it('removes absence marker to interpolate from prior keyframe', () => {
+    const t: Track = {
+      track_id: '1',
+      class_id: 0,
+      keyframes: [
+        { frame: 0, bbox_xywh: [0, 0, 10, 10] },
+        { frame: 9, bbox_xywh: [0, 0, 10, 10], absent: true },
+        { frame: 10, bbox_xywh: [10, 10, 10, 10] },
+      ],
+    };
+    t.keyframes.splice(1, 1);
+    expect(rectAtFrame(t, 5)).toEqual({ x: 5, y: 5, w: 10, h: 10 });
+  });
 });
 

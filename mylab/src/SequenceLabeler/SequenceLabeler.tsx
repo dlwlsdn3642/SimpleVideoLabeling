@@ -962,17 +962,17 @@ const SequenceLabeler: React.FC<{
     if (!t) return;
     const idx = findKFIndexAtOrBefore(t.keyframes, f);
     let r = rectAtFrame(t, f, interpolate);
-    if (!r && idx >= 0) {
-      r = rectFromKF(t.keyframes[idx]);
-    }
+    if (!r && idx >= 0) r = rectFromKF(t.keyframes[idx]);
     if (!r) return;
     applyTracks(
       (ts) =>
         ts.map((tt) => {
           if (tt.track_id !== trackId) return tt;
           const kfs = [...tt.keyframes];
-          if (idx >= 0 && kfs[idx].absent) {
-            kfs[idx] = { ...kfs[idx], absent: false };
+          const prevIdx = findKFIndexAtOrBefore(kfs, f);
+          if (prevIdx >= 0 && kfs[prevIdx].absent) {
+            if (kfs[prevIdx].frame === f) kfs[prevIdx] = { ...kfs[prevIdx], absent: false };
+            else kfs.splice(prevIdx, 1);
           }
           const updated = { ...tt, keyframes: kfs };
           return ensureKFAt(updated, f, r!);
