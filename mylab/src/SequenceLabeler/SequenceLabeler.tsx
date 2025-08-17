@@ -414,15 +414,14 @@ const SequenceLabeler: React.FC<{
 
   // observe canvas container size to enforce scale limits
   useEffect(() => {
-    if (!meta || !canvasWrapRef.current) return;
-    const el = canvasWrapRef.current.parentElement ?? containerRef.current;
-    if (!el) return;
+    if (!meta || !containerRef.current) return;
+    const el = containerRef.current;
     const update = () => {
       const elRect = el.getBoundingClientRect();
       const timelineH =
         timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
-      const width = elRect.width;
-      const height = elRect.height - timelineH;
+      const width = Math.round(elRect.width);
+      const height = Math.round(elRect.height - timelineH);
       const prev = lastSizeRef.current;
       if (
         width === prev.width &&
