@@ -420,7 +420,8 @@ const SequenceLabeler: React.FC<{
         Math.min(3, parentWidth / meta.width, height / meta.height),
       );
       setScaleMax(fitWidth ? fitW : max);
-      if (fitWidth) setScale(fitW);
+      if (fitWidth)
+        setScale((s) => (Math.abs(s - fitW) > 1e-3 ? fitW : s));
       else setScale((s) => Math.min(s, max));
     };
     update();
