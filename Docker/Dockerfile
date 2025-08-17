@@ -7,12 +7,22 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # 필수 런타임 도구 + ffmpeg (OpenCV/프레임 추출용)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates curl tini \
+    ffmpeg ca-certificates curl tini zstd bzip2 libturbojpeg file \
+    libgl1 libglib2.0-0 git \
  && rm -rf /var/lib/apt/lists/*
 
 # ========= micromamba (conda 대체, 경량) =========
 ENV MAMBA_ROOT_PREFIX=/opt/conda
-RUN curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C /usr/local/bin/ --strip-components=1 bin/micromamba
+RUN set -eux; \
+    url="https://micro.mamba.pm/api/micromamba/linux-64/latest"; \
+    tmp="/tmp/micromamba.tar"; \
+    curl -L "$url" -o "$tmp"; \
+    if file "$tmp" | grep -qi 'zstandard'; then \
+      tar -x --use-compress-program=unzstd -C /usr/local/bin/ --strip-components=1 -f "$tmp" bin/micromamba; \
+    else \
+      tar -xj -C /usr/local/bin/ --strip-components=1 -f "$tmp" bin/micromamba; \
+    fi; \
+    rm -f "$tmp"
 SHELL ["/bin/bash", "-lc"]
 
 # ========= conda env (원작자 스펙) =========
@@ -24,29 +34,36 @@ RUN micromamba create -y -n transt -c pytorch -c conda-forge \
  && micromamba clean -a -y
 
 # ========= pip / apt 패키지 =========
-# libturbojpeg은 apt에서 설치
-RUN apt-get update && apt-get install -y --no-install-recommends libturbojpeg && rm -rf /var/lib/apt/lists/*
-
-# pip로 필요한 패키지들 설치
+# libturbojpeg은 apt에서 설치 (이미 위에서 설치)
+# pip로 필요한 패키지들 설치 (py3.7 호환 버전 고정)
 RUN micromamba run -n transt pip install \
     opencv-python \
     tb-nightly visdom scikit-image tikzplotlib gdown \
     pycocotools jpeg4py wget yacs \
-    shapely==1.6.4.post2
+    shapely==1.6.4.post2 \
+    "fastapi==0.95.2" "pydantic==1.10.13" "uvicorn==0.22.0"
 
+# ========= TransT 코드 =========
+# pytracking import를 위해 레포 클론 + PYTHONPATH 등록
+WORKDIR /opt
+RUN git clone --depth=1 https://github.com/chenxin-dlut/TransT.git /opt/TransT
+ENV PYTHONPATH=/opt/TransT:${PYTHONPATH}
+
+# ========= 가중치 (요청한 절대 경로 유지) =========
 RUN mkdir -p /home/cx/detr-tracking/pytracking/networks/
-RUN gdown --id "1GYpf_YaWLpGva3HB9skDH4H6IFtSERyb" -O /home/cx/detr-tracking/pytracking/networks/transt.pth;
+RUN micromamba run -n transt gdown --id "1GYpf_YaWLpGva3HB9skDH4H6IFtSERyb" \
+  -O /home/cx/detr-tracking/pytracking/networks/transt.pth
 
 # ========= 앱 복사 =========
-WORKDIR /app
-COPY transt_server.py /app
-COPY transt_wrapper.py /app
-
+WORKDIR /transt
+COPY transt_server.py /transt
+COPY transt_wrapper.py /transt
 
 # 성능/안정화 환경변수
 ENV OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     CUDA_LAUNCH_BLOCKING=0
+
 EXPOSE 7000
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
