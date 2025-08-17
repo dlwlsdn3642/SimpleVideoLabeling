@@ -45,6 +45,18 @@ export default class ProjectManager {
     return task;
   }
 
+  deleteProject(projectId: string) {
+    this.projects = this.projects.filter(p => p.id !== projectId);
+    this.save();
+  }
+
+  deleteTask(projectId: string, taskId: string) {
+    const project = this.projects.find(p => p.id === projectId);
+    if (!project) return;
+    project.tasks = project.tasks.filter(t => t.id !== taskId);
+    this.save();
+  }
+
   updateTaskFolder(taskId: string, folder: string) {
     for (const p of this.projects) {
       const t = p.tasks.find(t => t.id === taskId);

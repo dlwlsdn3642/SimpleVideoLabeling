@@ -113,7 +113,9 @@ const SequenceLabeler: React.FC<{
         if (s.tracks) setTracks(s.tracks);
         if (typeof s.frame === "number") setFrame(s.frame);
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
-      } catch {}
+      } catch (err) {
+        console.error(err);
+      }
     }
   }, [storagePrefix]);
 
@@ -143,7 +145,13 @@ const SequenceLabeler: React.FC<{
 
   useEffect(() => {
     const raw = localStorage.getItem("sequence_label_sets_v1");
-    if (raw) { try { setAvailableSets(JSON.parse(raw)); } catch {} }
+    if (raw) {
+      try {
+        setAvailableSets(JSON.parse(raw));
+      } catch (err) {
+        console.error(err);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -218,7 +226,7 @@ const SequenceLabeler: React.FC<{
     (async () => {
       const total = localFiles ? localFiles.length : files.length;
       if (!meta || total <= 0) return;
-      const tasks: Promise<any>[] = [];
+      const tasks: Promise<HTMLImageElement | null>[] = [];
       for (let d = -prefetchRadius; d <= prefetchRadius; d++) {
         const i = frame + d; if (i < 0 || i >= total) continue;
         if (cacheRef.current.has(i)) continue;
@@ -452,9 +460,9 @@ const SequenceLabeler: React.FC<{
 
     // 새 트랙 드래그 중
     if (dragRef.current.creating && dragRef.current.tempRect) {
-      let x1 = dragRef.current.mx, y1 = dragRef.current.my, x2 = mx, y2 = my;
+      const x1 = dragRef.current.mx, y1 = dragRef.current.my, x2 = mx, y2 = my;
       let nx = Math.min(x1, x2), ny = Math.min(y1, y2);
-      let nw = Math.max(2, Math.abs(x2 - x1)), nh = Math.max(2, Math.abs(y2 - y1));
+      const nw = Math.max(2, Math.abs(x2 - x1)), nh = Math.max(2, Math.abs(y2 - y1));
       nx = clamp(nx, 0, meta.width - nw); ny = clamp(ny, 0, meta.height - nh);
       const nr = { x: nx, y: ny, w: nw, h: nh };
       dragRef.current.tempRect = nr;
@@ -506,7 +514,7 @@ const SequenceLabeler: React.FC<{
         if (side.includes("e")) x2 = mx2; if (side.includes("s")) y2 = my2;
         if (side.includes("w")) x1 = mx1; if (side.includes("n")) y1 = my1;
         let nx = Math.min(x1, x2), ny = Math.min(y1, y2);
-        let nw = Math.max(minW, Math.abs(x2 - x1)), nh = Math.max(minH, Math.abs(y2 - y1));
+        const nw = Math.max(minW, Math.abs(x2 - x1)), nh = Math.max(minH, Math.abs(y2 - y1));
         nx = clamp(nx, 0, meta.width - nw); ny = clamp(ny, 0, meta.height - nh);
         r = { x: nx, y: ny, w: nw, h: nh };
       };
@@ -607,10 +615,13 @@ const SequenceLabeler: React.FC<{
 
   async function exportYOLO() {
     if (!meta) return;
-    // @ts-ignore
-    if (!("showDirectoryPicker" in window)) { alert("Chromium 계열 브라우저에서 사용하세요."); return; }
-    // @ts-ignore
-    const dir: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ id: "yolo-export" });
+    if (!('showDirectoryPicker' in window)) {
+      alert('Chromium 계열 브라우저에서 사용하세요.');
+      return;
+    }
+    const dir: FileSystemDirectoryHandle = await (window as unknown as {
+      showDirectoryPicker: (opts: { id: string }) => Promise<FileSystemDirectoryHandle>;
+    }).showDirectoryPicker({ id: 'yolo-export' });
     const total = localFiles ? localFiles.length : files.length;
     const names = localFiles ? localFiles.map(f => f.name) : files;
 
@@ -695,7 +706,9 @@ const SequenceLabeler: React.FC<{
                     const sets: LabelSet[] = JSON.parse(raw);
                     const s = sets.find(x => x.name === name);
                     if (s) setLabelSet({ name: s.name, classes: [...s.classes] });
-                  } catch {}
+                  } catch (err) {
+                    console.error(err);
+                  }
                 }}
               >
                 <option value={labelSet.name}>{labelSet.name}</option>

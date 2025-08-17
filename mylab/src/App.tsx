@@ -52,6 +52,25 @@ export default function App() {
 
   const selectTask = (t: Task) => setCurrentTask(t);
 
+  const handleDeleteProject = (id: string) => {
+    pm.current.deleteProject(id);
+    refresh();
+    if (currentProject?.id === id) {
+      const remaining = pm.current.getProjects();
+      const p = remaining[0] ?? null;
+      setCurrentProject(p);
+      setCurrentTask(p?.tasks[0] ?? null);
+    }
+  };
+
+  const handleDeleteTask = (projectId: string, taskId: string) => {
+    pm.current.deleteTask(projectId, taskId);
+    refresh();
+    if (currentTask?.id === taskId) {
+      setCurrentTask(null);
+    }
+  };
+
   return (
     <div style={{ height: "100vh", display: "flex", position: "relative" }}>
       {panelOpen && (
@@ -60,7 +79,13 @@ export default function App() {
           <ul>
             {projects.map(p => (
               <li key={p.id}>
-                <button onClick={() => selectProject(p.id)} style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal" }}>{p.name}</button>
+                <button
+                  onClick={() => selectProject(p.id)}
+                  style={{ fontWeight: p.id === currentProject?.id ? "bold" : "normal" }}
+                >
+                  {p.name}
+                </button>
+                <button onClick={() => handleDeleteProject(p.id)} style={{ marginLeft: 4 }}>✕</button>
               </li>
             ))}
           </ul>
@@ -71,7 +96,13 @@ export default function App() {
               <ul>
                 {currentProject.tasks.map(t => (
                   <li key={t.id}>
-                    <button onClick={() => selectTask(t)} style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal" }}>{t.name}</button>
+                    <button
+                      onClick={() => selectTask(t)}
+                      style={{ fontWeight: t.id === currentTask?.id ? "bold" : "normal" }}
+                    >
+                      {t.name}
+                    </button>
+                    <button onClick={() => handleDeleteTask(currentProject.id, t.id)} style={{ marginLeft: 4 }}>✕</button>
                   </li>
                 ))}
               </ul>
@@ -79,7 +110,7 @@ export default function App() {
           )}
         </div>
       )}
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, marginLeft: panelOpen ? 0 : 32 }}>
         {currentTask ? (
           <SequenceLabeler
             framesBaseUrl={`${currentTask.workFolder}/frames`}
