@@ -9,6 +9,7 @@ type Props = {
   tracks: Track[];
   labelSet: LabelSet;
   onDeleteKeyframe: (trackId: string, frame: number) => void;
+  onAddKeyframe: (trackId: string, frame: number) => void;
   width?: number;
   rowHeight?: number;
 };
@@ -20,8 +21,9 @@ const Timeline: React.FC<Props> = ({
   tracks,
   labelSet,
   onDeleteKeyframe,
+  onAddKeyframe,
   width = 800,
-  rowHeight = 20
+  rowHeight = 20,
 }) => {
   const margin = 8;
   const innerW = Math.max(1, width - margin * 2);
@@ -32,11 +34,19 @@ const Timeline: React.FC<Props> = ({
   const centerX = (f: number) => margin + (f + 0.5) * step;
 
   const draggingRef = useRef(false);
-  const seekFromEvent = (ev: React.PointerEvent<SVGSVGElement>) => {
+  const getPosFromEvent = (
+    ev: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>,
+  ) => {
     const rect = (ev.currentTarget as SVGSVGElement).getBoundingClientRect();
     const x = ev.clientX - rect.left - margin;
-    const t = clamp(Math.floor(x / step), 0, total - 1);
-    onSeek(t);
+    const y = ev.clientY - rect.top - margin;
+    const f = clamp(Math.floor(x / step), 0, total - 1);
+    const trackIdx = Math.floor(y / rowHeight);
+    return { f, trackIdx };
+  };
+  const seekFromEvent = (ev: React.PointerEvent<SVGSVGElement>) => {
+    const { f } = getPosFromEvent(ev);
+    onSeek(f);
   };
   const onPointerDown = (ev: React.PointerEvent<SVGSVGElement>) => {
     draggingRef.current = true;
@@ -58,7 +68,7 @@ const Timeline: React.FC<Props> = ({
   };
 
   const frameHasKF = (f: number) =>
-    tracks.some(t => t.keyframes.some(k => k.frame === f));
+    tracks.some((t) => t.keyframes.some((k) => k.frame === f));
 
   return (
     <svg
@@ -69,8 +79,23 @@ const Timeline: React.FC<Props> = ({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onWheel={onWheel}
+      onDoubleClick={(ev) => {
+        ev.preventDefault();
+        const { f, trackIdx } = getPosFromEvent(ev);
+        if (trackIdx >= 0 && trackIdx < tracks.length) {
+          onAddKeyframe(tracks[trackIdx].track_id, f);
+        }
+      }}
+      onContextMenu={(ev) => ev.preventDefault()}
     >
-      <rect x={0} y={0} width={width} height={height} fill="#161616" stroke="#333" />
+      <rect
+        x={0}
+        y={0}
+        width={width}
+        height={height}
+        fill="#161616"
+        stroke="#333"
+      />
 
       {Array.from({ length: total }, (_, f) => (
         <rect
@@ -87,25 +112,38 @@ const Timeline: React.FC<Props> = ({
       ))}
 
       {tracks.map((t, idx) => {
-        const y = margin + rowHeight * idx + rowHeight / 2;
+        const y = margin + rowHeight * idx;
         const color = labelSet.colors[t.class_id] || "#4ea3ff";
+        const segs: Array<[number, number]> = [];
+        let start = 0;
+        let visible = true;
+        const toggles = [...t.presence_toggles, total];
+        for (const f of toggles) {
+          if (visible) segs.push([start, f]);
+          start = f;
+          visible = !visible;
+        }
         return (
           <g key={t.track_id}>
-            <line
-              x1={margin}
-              y1={y}
-              x2={margin + innerW}
-              y2={y}
-              stroke={color}
-            />
-            {t.keyframes.map(k => (
+            {segs.map(([s, e], i) => (
+              <rect
+                key={`seg-${i}`}
+                x={scaleX(s)}
+                y={y}
+                width={(e - s) * step}
+                height={rowHeight}
+                fill={color}
+                opacity={0.3}
+              />
+            ))}
+            {t.keyframes.map((k) => (
               <circle
                 key={k.frame}
                 cx={centerX(k.frame)}
-                cy={y}
+                cy={y + rowHeight / 2}
                 r={4}
                 fill={color}
-                onContextMenu={ev => {
+                onContextMenu={(ev) => {
                   ev.preventDefault();
                   onDeleteKeyframe(t.track_id, k.frame);
                 }}
@@ -130,4 +168,3 @@ const Timeline: React.FC<Props> = ({
 };
 
 export default Timeline;
-
