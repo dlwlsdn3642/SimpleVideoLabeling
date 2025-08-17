@@ -7,12 +7,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # 필수 런타임 도구 + ffmpeg (OpenCV/프레임 추출용)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg ca-certificates curl tini \
+    ffmpeg ca-certificates curl tini zstd bzip2 \
  && rm -rf /var/lib/apt/lists/*
 
 # ========= micromamba (conda 대체, 경량) =========
 ENV MAMBA_ROOT_PREFIX=/opt/conda
-RUN curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C /usr/local/bin/ --strip-components=1 bin/micromamba
+RUN curl -L https://micro.mamba.pm/api/micromamba/linux-64/latest \
+ | tar -x -C /usr/local/bin/ --strip-components=1 --use-compress-program=unzstd bin/micromamba
 SHELL ["/bin/bash", "-lc"]
 
 # ========= conda env (원작자 스펙) =========
