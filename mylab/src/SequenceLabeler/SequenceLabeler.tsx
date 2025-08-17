@@ -195,8 +195,9 @@ const SequenceLabeler: React.FC<{
   const [keyUIOpen, setKeyUIOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
-  // layout refs for timeline width
+  // layout refs for timeline area
   const timelineWrapRef = useRef<HTMLDivElement | null>(null);
+  const timelineBarRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
   const [needsImport, setNeedsImport] = useState(false);
 
@@ -389,8 +390,10 @@ const SequenceLabeler: React.FC<{
       const rect = el.getBoundingClientRect();
       const timelineH =
         timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
+      const toolbarH =
+        timelineBarRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
-      const availH = rect.height - timelineH;
+      const availH = Math.max(0, rect.height - timelineH - toolbarH);
       if (availH <= 0 || totalW <= 0) return;
       const desiredCanvasW = availH * (meta.width / meta.height);
       let newSide = totalW - desiredCanvasW;
@@ -402,8 +405,16 @@ const SequenceLabeler: React.FC<{
     };
     update();
     const ro = new ResizeObserver(update);
+    const roTimeline = new ResizeObserver(update);
+    const roBar = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
+    if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
+    return () => {
+      ro.disconnect();
+      roTimeline.disconnect();
+      roBar.disconnect();
+    };
   }, [meta]);
 
   /** ===== Image loading ===== */
@@ -1235,6 +1246,7 @@ const SequenceLabeler: React.FC<{
             gridTemplateRows: "1fr auto auto",
             background: "#111",
             minWidth: 0,
+            minHeight: 0,
           }}
         >
           <div
@@ -1262,6 +1274,7 @@ const SequenceLabeler: React.FC<{
           </div>
           {/* Timeline toolbar (above timeline) */}
           <div
+            ref={timelineBarRef}
             style={{
               display: "flex",
               alignItems: "center",
