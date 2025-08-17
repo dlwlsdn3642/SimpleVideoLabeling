@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -419,9 +420,9 @@ const SequenceLabeler: React.FC<{
         0.1,
         Math.min(3, parentWidth / meta.width, height / meta.height),
       );
-      setScaleMax(fitWidth ? fitW : max);
-      if (fitWidth)
-        setScale((s) => (Math.abs(s - fitW) > 1e-3 ? fitW : s));
+      const targetMax = fitWidth ? fitW : max;
+      setScaleMax((m) => (Math.abs(m - targetMax) > 1e-3 ? targetMax : m));
+      if (fitWidth) setScale((s) => (Math.abs(s - fitW) > 1e-3 ? fitW : s));
       else setScale((s) => Math.min(s, max));
     };
     update();
@@ -479,7 +480,7 @@ const SequenceLabeler: React.FC<{
   }, [frame, meta, files.length, localFiles, getImage, prefetchRadius]);
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const c = canvasRef.current;
     if (!c || !meta) return;
     const W = Math.round(meta.width * scale);
@@ -489,7 +490,7 @@ const SequenceLabeler: React.FC<{
   }, [meta, scale]);
 
   /** ===== Drawing ===== */
-  useEffect(() => {
+  useLayoutEffect(() => {
     let cancelled = false;
     (async () => {
       const c = canvasRef.current;
