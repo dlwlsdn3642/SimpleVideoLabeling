@@ -36,6 +36,7 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
             })}
             title="select for multi"
           />
+          <div style={{ width: 12, height: 12, background: labelSet.colors[t.class_id], border: "1px solid #333" }} />
           <div
             onClick={() => setSelectedIds(new Set([t.track_id]))}
             style={{ cursor: "pointer", flex: 1 }}
@@ -71,7 +72,8 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
     if (!clsTracks) return;
     rendered.push(
       <details key={classId} open>
-        <summary style={{ fontWeight: 600, cursor: "pointer" }}>
+        <summary style={{ fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 12, height: 12, background: labelSet.colors[classId], border: "1px solid #333" }}></span>
           {classId + 1}. {name} ({clsTracks.length})
         </summary>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 12, marginTop: 6 }}>
