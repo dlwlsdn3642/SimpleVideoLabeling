@@ -92,6 +92,35 @@ export default function App() {
     }
   };
 
+  const handleOpenProject = () => {
+    const list = pm.current.getProjects();
+    if (!list.length) {
+      alert("No projects. Create one first.");
+      return;
+    }
+    if (list.length === 1) {
+      setCurrentProject(list[0]);
+      setCurrentTask(null);
+      return;
+    }
+    const choice = prompt(
+      `Open which project?\n` +
+        list.map((p, i) => `${i + 1}. ${p.name}`).join("\n") +
+        `\nEnter number:`,
+      "1",
+    );
+    if (!choice) return;
+    const idx = parseInt(choice, 10) - 1;
+    if (Number.isNaN(idx) || idx < 0 || idx >= list.length) return;
+    setCurrentProject(list[idx]);
+    setCurrentTask(null);
+  };
+
+  const handleCloseProject = () => {
+    setCurrentProject(null);
+    setCurrentTask(null);
+  };
+
   return (
     <div style={{ height: "100vh", display: "flex", position: "relative" }}>
       <div
@@ -113,7 +142,11 @@ export default function App() {
             >
               {"⮜"}
             </button>
-            <button onClick={handleCreateProject}>New Project</button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button onClick={handleCreateProject}>New Project</button>
+              <button onClick={handleOpenProject}>Open Project</button>
+              <button onClick={handleCloseProject} disabled={!currentProject}>Close Project</button>
+            </div>
             <ul>
               {projects.map(p => (
                 <li key={p.id}>

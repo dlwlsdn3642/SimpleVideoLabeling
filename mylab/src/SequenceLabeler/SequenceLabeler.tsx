@@ -87,6 +87,7 @@ const SequenceLabeler: React.FC<{
   });
   const [availableSets, setAvailableSets] = useState<LabelSet[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [hiddenClasses, setHiddenClasses] = useState<Set<number>>(new Set());
   const historyRef = useRef<Track[][]>([]);
   const futureRef = useRef<Track[][]>([]);
   const applyTracks = useCallback(
@@ -923,7 +924,14 @@ const SequenceLabeler: React.FC<{
     if (!t) return;
     const idx = findKFIndexAtOrBefore(t.keyframes, f);
     let r = rectAtFrame(t, f, interpolate);
-    if (!r && idx >= 0) r = rectFromKF(t.keyframes[idx]);
+    if (!r) {
+      // Prefer previous rect if exists, otherwise use next rect.
+      if (idx >= 0) r = rectFromKF(t.keyframes[idx]);
+      if (!r) {
+        const next = t.keyframes.find((k) => k.frame >= f);
+        if (next) r = rectFromKF(next);
+      }
+    }
     if (!r) return;
     applyTracks(
       (ts) =>
@@ -1164,14 +1172,7 @@ const SequenceLabeler: React.FC<{
           Frame {frame + 1}/{totalFrames || "—"}
         </span>
 
-        <span style={{ marginLeft: 16 }}>
-          Interp{" "}
-          <input
-            type="checkbox"
-            checked={interpolate}
-            onChange={(e) => setInterpolate(e.target.checked)}
-          />
-        </span>
+        {/* Removed duplicate Interp toggle (right panel has the control) */}
 
         <button
           onClick={togglePresenceAtCurrent}
@@ -1245,6 +1246,18 @@ const SequenceLabeler: React.FC<{
               onDeleteKeyframe={deleteKeyframe}
               onAddKeyframe={addKeyframe}
               width={timelineWidth}
+              selectedIds={selectedIds}
+              onSelectTrack={(tid, additive) => {
+                setSelectedIds(prev => {
+                  if (additive) {
+                    const n = new Set(prev);
+                    if (n.has(tid)) n.delete(tid); else n.add(tid);
+                    return n;
+                  }
+                  return new Set([tid]);
+                });
+              }}
+              hiddenClasses={hiddenClasses}
             />
           </div>
         </div>
@@ -1452,6 +1465,8 @@ const SequenceLabeler: React.FC<{
               selectedIds={selectedIds}
               setSelectedIds={setSelectedIds}
               setTracks={applyTracks}
+              hiddenClasses={hiddenClasses}
+              setHiddenClasses={(fn) => setHiddenClasses(fn(hiddenClasses))}
             />
           </div>
         </div>

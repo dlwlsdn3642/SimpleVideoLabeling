@@ -7,9 +7,11 @@ type Props = {
   selectedIds: Set<string>;
   setSelectedIds: (s: Set<string>) => void;
   setTracks: (updater: (ts: Track[]) => Track[], record?: boolean) => void;
+  hiddenClasses?: Set<number>;
+  setHiddenClasses?: (updater: (prev: Set<number>) => Set<number>) => void;
 };
 
-const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelectedIds, setTracks }) => {
+const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelectedIds, setTracks, hiddenClasses, setHiddenClasses }) => {
   const grouped: Record<number, Track[]> = {};
   for (const t of tracks) {
     (grouped[t.class_id] = grouped[t.class_id] ?? []).push(t);
@@ -70,11 +72,24 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
   labelSet.classes.forEach((name, classId) => {
     const clsTracks = grouped[classId];
     if (!clsTracks) return;
+    const clsHidden = hiddenClasses?.has(classId) ?? false;
     rendered.push(
       <details key={classId} open>
-        <summary style={{ fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+        <summary style={{ fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 12, height: 12, background: labelSet.colors[classId], border: "1px solid #333" }}></span>
           {classId + 1}. {name} ({clsTracks.length})
+          <label style={{ marginLeft: 8, display: "flex", alignItems: "center", gap: 4 }} title="Show/Hide in timeline">
+            <input
+              type="checkbox"
+              checked={!clsHidden}
+              onChange={(e) => setHiddenClasses?.(prev => {
+                const n = new Set(prev ?? new Set<number>());
+                if (e.target.checked) n.delete(classId); else n.add(classId);
+                return n;
+              })}
+            />
+            <span style={{ fontSize: 12, opacity: 0.85 }}>Show in timeline</span>
+          </label>
         </summary>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: 12, marginTop: 6 }}>
           {clsTracks.map(renderTrack)}

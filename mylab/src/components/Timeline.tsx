@@ -1,4 +1,4 @@
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import type { Track, LabelSet } from "../types";
 import { clamp } from "../utils/geom";
 
@@ -12,6 +12,9 @@ type Props = {
   onAddKeyframe: (trackId: string, frame: number) => void;
   width?: number;
   rowHeight?: number;
+  selectedIds?: Set<string>;
+  onSelectTrack?: (trackId: string, additive: boolean) => void;
+  hiddenClasses?: Set<number>;
 };
 
 const Timeline: React.FC<Props> = ({
@@ -28,12 +31,16 @@ const Timeline: React.FC<Props> = ({
   const margin = 8;
   const innerW = Math.max(1, width - margin * 2);
   const step = innerW / Math.max(1, total);
-  const height = margin * 2 + rowHeight * tracks.length;
+  const visibleTracks = hiddenClasses
+    ? tracks.filter(t => !hiddenClasses.has(t.class_id))
+    : tracks;
+  const height = margin * 2 + rowHeight * visibleTracks.length;
   const innerH = height - margin * 2;
   const scaleX = (f: number) => margin + f * step;
   const centerX = (f: number) => margin + (f + 0.5) * step;
 
   const draggingRef = useRef(false);
+  const [hovered, setHovered] = useState<{ f: number; idx: number } | null>(null);
   const getPosFromEvent = (
     ev: React.PointerEvent<SVGSVGElement> | React.MouseEvent<SVGSVGElement>,
   ) => {
@@ -54,16 +61,24 @@ const Timeline: React.FC<Props> = ({
     draggingRef.current = true;
     (ev.target as Element).setPointerCapture?.(ev.pointerId);
     seekFromEvent(ev);
+    if (onSelectTrack) {
+      const { trackIdx } = getPosFromEvent(ev);
+      if (trackIdx >= 0 && trackIdx < visibleTracks.length) {
+        onSelectTrack(visibleTracks[trackIdx].track_id, ev.ctrlKey || ev.metaKey || ev.shiftKey);
+      }
+    }
   };
   const onPointerMove = (ev: React.PointerEvent<SVGSVGElement>) => {
-    if (!draggingRef.current) return;
-    seekFromEvent(ev);
+    const { f, trackIdx } = getPosFromEvent(ev);
+    setHovered({ f, idx: trackIdx });
+    if (draggingRef.current) seekFromEvent(ev);
   };
   const onPointerUp = (ev: React.PointerEvent<SVGSVGElement>) => {
     draggingRef.current = false;
     (ev.target as Element).releasePointerCapture?.(ev.pointerId);
     document.body.style.userSelect = "";
   };
+  const onMouseLeave = () => setHovered(null);
   const onWheel = (ev: React.WheelEvent<SVGSVGElement>) => {
     ev.preventDefault();
     const delta = ev.deltaY > 0 ? 1 : -1;
@@ -71,7 +86,7 @@ const Timeline: React.FC<Props> = ({
   };
 
   const frameHasKF = (f: number) =>
-    tracks.some((t) => t.keyframes.some((k) => k.frame === f));
+    visibleTracks.some((t) => t.keyframes.some((k) => k.frame === f));
 
   return (
     <svg
@@ -82,12 +97,13 @@ const Timeline: React.FC<Props> = ({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onWheel={onWheel}
+      onMouseLeave={onMouseLeave}
       onDoubleClick={(ev) => {
         ev.preventDefault();
         document.getSelection()?.removeAllRanges();
         const { f, trackIdx } = getPosFromEvent(ev);
-        if (trackIdx >= 0 && trackIdx < tracks.length) {
-          onAddKeyframe(tracks[trackIdx].track_id, f);
+        if (trackIdx >= 0 && trackIdx < visibleTracks.length) {
+          onAddKeyframe(visibleTracks[trackIdx].track_id, f);
         }
       }}
       onContextMenu={(ev) => ev.preventDefault()}
@@ -115,9 +131,10 @@ const Timeline: React.FC<Props> = ({
         </rect>
       ))}
 
-      {tracks.map((t, idx) => {
+      {visibleTracks.map((t, idx) => {
         const y = margin + rowHeight * idx;
         const color = labelSet.colors[t.class_id] || "#4ea3ff";
+        const selected = selectedIds?.has(t.track_id);
         const segs: Array<[number, number]> = [];
         const kfs = t.keyframes;
         for (let i = 0; i < kfs.length; i++) {
@@ -128,6 +145,14 @@ const Timeline: React.FC<Props> = ({
         }
         return (
           <g key={t.track_id}>
+            {/* Row background */}
+            <rect
+              x={margin}
+              y={y}
+              width={innerW}
+              height={rowHeight}
+              fill={selected ? "rgba(78,163,255,0.12)" : "transparent"}
+            />
             {segs.map(([s, e], i) => (
               <line
                 key={`seg-${i}`}
@@ -157,6 +182,18 @@ const Timeline: React.FC<Props> = ({
           </g>
         );
       })}
+
+      {/* Hovered frame highlight */}
+      {hovered && hovered.idx >= 0 && hovered.idx < visibleTracks.length && (
+        <rect
+          x={scaleX(hovered.f)}
+          y={margin}
+          width={step}
+          height={innerH}
+          fill="rgba(255,255,255,0.06)"
+          pointerEvents="none"
+        />
+      )}
 
       <line
         x1={centerX(frame)}
