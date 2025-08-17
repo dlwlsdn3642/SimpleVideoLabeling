@@ -419,59 +419,46 @@ const SequenceLabeler: React.FC<{
     return () => ro.disconnect();
   }, []);
 
-  // keep canvas scale in sync with available space
+  // keep side panel width within work area bounds
   useEffect(() => {
-    if (!meta || !workAreaRef.current) return;
+    if (!workAreaRef.current) return;
     const el = workAreaRef.current;
+    const ro = new ResizeObserver((entries) => {
+      const width = entries[0].contentRect.width;
+      setSideWidth((w) => Math.min(w, width));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // sync canvas scale to its wrapper size
+  useEffect(() => {
+    if (!meta || !canvasWrapRef.current) return;
+    const el = canvasWrapRef.current;
     let raf = 0;
-    let pendingScale = scale;
-    let pendingSide = sideWidth;
 
-    const flush = () => {
-      raf = 0;
-      setSideWidth(pendingSide);
-      setScale(pendingScale);
-    };
-
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const timelineH =
-        timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
-      const toolbarH =
-        timelineBarRef.current?.getBoundingClientRect().height ?? 0;
-      const resizerH =
-        timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
-      const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
-      const safeSide = Math.min(sideWidth, rect.width);
-      const canvasW = Math.max(0, rect.width - safeSide);
-      if (canvasW <= 0 || availH <= 0) return;
-      const scaleByH = availH / meta.height;
-      const scaleByW = canvasW / meta.width;
-      pendingScale = Math.min(scaleByH, scaleByW);
-      pendingSide = safeSide;
+    const update = (entry?: ResizeObserverEntry) => {
+      const rect = entry ? entry.contentRect : el.getBoundingClientRect();
+      const nextScale = Math.min(
+        rect.width / meta.width,
+        rect.height / meta.height,
+      );
       if (!raf) {
-        raf = requestAnimationFrame(flush);
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          setScale(nextScale);
+        });
       }
     };
 
     update();
-    const ro = new ResizeObserver(update);
-    const roTimeline = new ResizeObserver(update);
-    const roBar = new ResizeObserver(update);
-    const roResizer = new ResizeObserver(update);
+    const ro = new ResizeObserver((entries) => update(entries[0]));
     ro.observe(el);
-    if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
-    if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
-    if (timelineResizerRef.current)
-      roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
-      roTimeline.disconnect();
-      roBar.disconnect();
-      roResizer.disconnect();
       cancelAnimationFrame(raf);
     };
-  }, [meta, sideWidth, timelineHeight]);
+  }, [meta]);
 
   /** ===== Image loading ===== */
   const getImage = useCallback(
