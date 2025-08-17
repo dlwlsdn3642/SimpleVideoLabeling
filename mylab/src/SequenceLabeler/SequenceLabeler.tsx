@@ -1242,6 +1242,8 @@ const SequenceLabeler: React.FC<{
             }}
             onDeleteKeyframe={deleteKeyframe}
             onAddKeyframe={addKeyframe}
+            hiddenClasses={hiddenClasses}
+            rowHeight={16}
           />
         </div>
 

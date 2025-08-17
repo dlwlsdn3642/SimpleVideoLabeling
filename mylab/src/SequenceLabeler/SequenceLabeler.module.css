@@ -46,6 +46,8 @@
 .timelineWrap {
   padding: 6px 12px;
   border-top: 1px solid var(--border);
+  max-height: 30vh;
+  overflow: auto;
 }
 
 .seekRange {

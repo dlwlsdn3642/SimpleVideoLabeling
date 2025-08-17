@@ -21,6 +21,8 @@ type Props = {
   onSelectTrack: (tid: string, additive: boolean) => void;
   onDeleteKeyframe: (trackId: string, frame: number) => void;
   onAddKeyframe: (trackId: string, frame: number) => void;
+  hiddenClasses: Set<number>;
+  rowHeight?: number;
 };
 
 const SLTimelineSection: React.FC<Props> = ({
@@ -40,6 +42,8 @@ const SLTimelineSection: React.FC<Props> = ({
   onSelectTrack,
   onDeleteKeyframe,
   onAddKeyframe,
+  hiddenClasses,
+  rowHeight = 20,
 }) => {
   return (
     <>
@@ -72,6 +76,8 @@ const SLTimelineSection: React.FC<Props> = ({
           width={timelineWidth}
           selectedIds={selectedIds}
           onSelectTrack={onSelectTrack}
+          hiddenClasses={hiddenClasses}
+          rowHeight={rowHeight}
         />
       </div>
     </>
@@ -79,4 +85,3 @@ const SLTimelineSection: React.FC<Props> = ({
 };
 
 export default SLTimelineSection;
-
