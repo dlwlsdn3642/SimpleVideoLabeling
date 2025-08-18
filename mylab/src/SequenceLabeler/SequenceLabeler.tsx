@@ -76,6 +76,7 @@ const SequenceLabeler: React.FC<{
   leftTopExtra,
 }) => {
   // media
+  const storagePrefix = taskId ?? indexUrl;
   const [meta, setMeta] = useState<IndexMeta | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
@@ -84,8 +85,39 @@ const SequenceLabeler: React.FC<{
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
+  const [sideWidth, setSideWidth] = useState(240);
+  const cacheRef = useRef(new LRUFrames(Math.max(96, prefetchRadius * 10)));
   const [playing, setPlaying] = useState(false);
+  // Remember last successfully drawn bitmap to avoid blanks
+  const lastDrawnRef = useRef<{ frame: number; bmp: ImageBitmap | null }>({ frame: -1, bmp: null });
+  // Bump to coalesce redraws when images finish decoding
+  const [renderTick, setRenderTick] = useState(0);
+  // Dedicated render loop (decoupled from React re-renders) capped at target FPS
+  const [targetFPS, setTargetFPS] = useState<number>(() => {
+    const key = `${storagePrefix}::target_fps`;
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+    const v = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : 30;
+  });
+  const rafIdRef = useRef<number | null>(null);
+  const lastTickRef = useRef(0);
+  // Throttle decode requests independently from render; keeps pipeline stable for large sequences
+  const lastDecodeReqRef = useRef(0);
+  const decodeIntervalMsRef = useRef(1000 / 30); // aim ~30 decode ops per second
+  const decodeScaleHintRef = useRef(1);
+  const upgradeInFlightRef = useRef(new Set<number>());
+
+  // Keep decode cadence tied to targetFPS
+  useEffect(() => {
+    decodeIntervalMsRef.current = 1000 / targetFPS;
+  }, [targetFPS]);
+
+  // Persist targetFPS selection
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${storagePrefix}::target_fps`, String(targetFPS));
+    } catch {/* ignore */}
+  }, [targetFPS, storagePrefix]);
 
   // labels
   const [labelSet, setLabelSet] = useState<LabelSet>({
@@ -198,7 +230,6 @@ const SequenceLabeler: React.FC<{
     undo: "Ctrl+z",
     redo: "Ctrl+y",
   };
-  const storagePrefix = taskId ?? indexUrl;
   const [keymap, setKeymap] = useState<KeyMap>(() => {
     const raw = localStorage.getItem(`${storagePrefix}::keymap_v2`);
     return raw ? { ...DEFAULT_KEYMAP, ...JSON.parse(raw) } : DEFAULT_KEYMAP;
@@ -454,7 +485,7 @@ const SequenceLabeler: React.FC<{
   // Deduplicate in-flight image loads to improve fast seeking responsiveness
   const inFlightRef = useRef(new Map<number, Promise<ImageBitmap | null>>());
   const getImage = useCallback(
-    async (idx: number): Promise<ImageBitmap | null> => {
+    async (idx: number, hintOverride?: number): Promise<ImageBitmap | null> => {
       if (!meta) return null;
       const total = localFiles ? localFiles.length : files.length;
       if (idx < 0 || idx >= total) return null;
@@ -467,9 +498,20 @@ const SequenceLabeler: React.FC<{
 
       const p = (async () => {
         try {
+          // Decode to the current canvas size to reduce work on large inputs
+          const c = viewportRef.current;
+          const baseW = c?.width ?? Math.round((meta?.width ?? 0) * (scale || 1));
+          const baseH = c?.height ?? Math.round((meta?.height ?? 0) * (scale || 1));
+          const hint = (hintOverride ?? decodeScaleHintRef.current) || 1;
+          const targetW = Math.max(1, Math.round(baseW * hint));
+          const targetH = Math.max(1, Math.round(baseH * hint));
           if (localFiles) {
             const file = await localFiles[idx].handle.getFile();
-            const bmp = await createImageBitmap(file);
+            const bmp = await createImageBitmap(file, {
+              resizeWidth: Math.max(1, targetW),
+              resizeHeight: Math.max(1, targetH),
+              resizeQuality: 'low',
+            } as any);
             cacheRef.current.set(idx, bmp);
             return bmp;
           } else {
@@ -477,7 +519,11 @@ const SequenceLabeler: React.FC<{
             const res = await fetch(url, { cache: "force-cache" });
             if (!res.ok) throw new Error(`image fetch ${res.status}`);
             const blob = await res.blob();
-            const bmp = await createImageBitmap(blob);
+            const bmp = await createImageBitmap(blob, {
+              resizeWidth: Math.max(1, targetW),
+              resizeHeight: Math.max(1, targetH),
+              resizeQuality: 'low',
+            } as any);
             cacheRef.current.set(idx, bmp);
             return bmp;
           }
@@ -490,20 +536,32 @@ const SequenceLabeler: React.FC<{
       inFlightRef.current.set(idx, p);
       return p;
     },
-    [meta, files, framesBaseUrl, localFiles],
+    [meta, files, framesBaseUrl, localFiles, scale],
   );
 
-  // prefetch around current frame (non-blocking, nearest-first)
+  // Prefetch around last displayed frame (strictly gated by decode cadence)
   useEffect(() => {
     const total = localFiles ? localFiles.length : files.length;
     if (!meta || total <= 0) return;
+    const base = lastDrawnRef.current.frame >= 0 ? lastDrawnRef.current.frame : frame;
+    const now = performance.now();
+    const mayDecode = now - lastDecodeReqRef.current >= decodeIntervalMsRef.current;
+    if (!mayDecode) return;
     for (let d = 1; d <= prefetchRadius; d++) {
-      const before = frame - d;
-      const after = frame + d;
-      if (before >= 0 && !cacheRef.current.has(before)) void getImage(before);
-      if (after < total && !cacheRef.current.has(after)) void getImage(after);
+      const before = base - d;
+      if (before >= 0 && !cacheRef.current.has(before)) {
+        lastDecodeReqRef.current = now;
+        void getImage(before);
+        break;
+      }
+      const after = base + d;
+      if (after < total && !cacheRef.current.has(after)) {
+        lastDecodeReqRef.current = now;
+        void getImage(after);
+        break;
+      }
     }
-  }, [frame, meta, files.length, localFiles, getImage, prefetchRadius]);
+  }, [renderTick, meta, files.length, localFiles, getImage, prefetchRadius]);
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
   useEffect(() => {
@@ -515,134 +573,178 @@ const SequenceLabeler: React.FC<{
     if (c.height !== H) c.height = H;
   }, [meta, scale]);
 
-  /** ===== Drawing ===== */
+  /** ===== Drawing (persistent RAF loop, ~60 FPS) ===== */
+  const stateRef = useRef({
+    frame: 0,
+    tracks: [] as Track[],
+    selectedIds: new Set<string>(),
+    labelSet: { classes: [] as string[], colors: [] as string[] } as LabelSet,
+    interpolate: true,
+    showGhosts: true,
+    ghostAlpha: 0.35,
+    meta: null as IndexMeta | null,
+    scale: 1,
+    draftRect: null as RectPX | null,
+  });
+  // keep draw state fresh
+  useEffect(() => { stateRef.current.frame = frame; });
+  useEffect(() => { stateRef.current.tracks = tracks; }, [tracks]);
+  useEffect(() => { stateRef.current.selectedIds = selectedIds; }, [selectedIds]);
+  useEffect(() => { stateRef.current.labelSet = labelSet; }, [labelSet.classes, labelSet.colors]);
+  useEffect(() => { stateRef.current.interpolate = interpolate; }, [interpolate]);
+  useEffect(() => { stateRef.current.showGhosts = showGhosts; }, [showGhosts]);
+  useEffect(() => { stateRef.current.ghostAlpha = ghostAlpha; }, [ghostAlpha]);
+  useEffect(() => { stateRef.current.meta = meta; }, [meta]);
+  useEffect(() => { stateRef.current.scale = scale; }, [scale]);
+  useEffect(() => { stateRef.current.draftRect = draftRect; }, [draftRect]);
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const c = viewportRef.current;
-      if (!c || !meta) return;
-      const ctx = c.getContext("2d");
-      if (!ctx) return;
+    const tick = async (t: number) => {
+      const last = lastTickRef.current;
+      const minInterval = 1000 / targetFPS;
+      if (t - last >= minInterval) {
+        lastTickRef.current = t;
 
-      const bmpInCache = cacheRef.current.has(frame);
-      const bmp = bmpInCache
-        ? cacheRef.current.get(frame)
-        : await getImage(frame);
-      if (cancelled || !bmp) return;
+        const { frame: f, tracks: ts, selectedIds: sel, labelSet: ls, interpolate: itp, showGhosts: ghosts, ghostAlpha: gAlpha, meta: m, scale: sc, draftRect: dr } = stateRef.current;
+        const c = viewportRef.current;
+        if (c && m) {
+          const ctx = c.getContext('2d');
+          if (ctx) {
+            // sample target to reduce decode thrash at very high input speeds
+            const total = (localFiles ? localFiles.length : files.length);
+            const delta = Math.abs((lastDrawnRef.current.frame ?? 0) - f);
+            const stride = delta > 120 ? 8 : delta > 60 ? 4 : delta > 20 ? 2 : 1;
+            // Adjust decode resolution based on scrub speed
+            decodeScaleHintRef.current = stride >= 8 ? 0.25 : stride >= 4 ? 0.5 : 1;
+            const target = Math.max(0, Math.min(total - 1, Math.round(f / stride) * stride));
+            // choose bitmap: target->neighbors->lastDrawn
+            let drawBmp: ImageBitmap | null = cacheRef.current.get(target) ?? null;
+            let drawIndex = target;
+            if (!drawBmp) {
+              // Gate decode requests so we don't overwhelm the pipeline
+              if (t - lastDecodeReqRef.current >= decodeIntervalMsRef.current) {
+                lastDecodeReqRef.current = t;
+                void getImage(target).then(() => setRenderTick(x => x + 1));
+              }
+              // search neighbors within a window
+              const maxSearch = 24;
+              for (let d = 1; d <= maxSearch; d++) {
+                const before = target - d * stride;
+                const after = target + d * stride;
+                if (before >= 0 && cacheRef.current.has(before)) { drawBmp = cacheRef.current.get(before)!; drawIndex = before; break; }
+                if (after < total && cacheRef.current.has(after)) { drawBmp = cacheRef.current.get(after)!; drawIndex = after; break; }
+              }
+              if (!drawBmp && lastDrawnRef.current.bmp) { drawBmp = lastDrawnRef.current.bmp; drawIndex = lastDrawnRef.current.frame; }
+            }
+            if (drawBmp) {
+              ctx.imageSmoothingEnabled = false;
+              ctx.fillStyle = '#111';
+              ctx.fillRect(0, 0, c.width, c.height);
+              ctx.drawImage(drawBmp, 0, 0, c.width, c.height);
+              lastDrawnRef.current = { frame: drawIndex, bmp: drawBmp };
 
-      ctx.imageSmoothingEnabled = false;
-      ctx.fillStyle = "#111";
-      ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+              const drawRect = (r: RectPX, color = '#00e5ff', alpha = 1, dashed = false) => {
+                const x = r.x * sc, y = r.y * sc, w = r.w * sc, h = r.h * sc;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.setLineDash(dashed ? [6, 6] : []);
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = color;
+                ctx.strokeRect(x, y, w, h);
+                const hs = 6;
+                ctx.fillStyle = color;
+                const dots = [[x,y],[x+w,y],[x,y+h],[x+w,y+h],[x+w/2,y],[x+w/2,y+h],[x,y+h/2],[x+w,y+h/2]] as const;
+                for (const [dx, dy] of dots) ctx.fillRect(dx - hs, dy - hs, hs * 2, hs * 2);
+                ctx.restore();
+              };
 
-      const drawRect = (
-        r: RectPX,
-        color = "#00e5ff",
-        alpha = 1,
-        dashed = false,
-      ) => {
-        const x = r.x * scale,
-          y = r.y * scale,
-          w = r.w * scale,
-          h = r.h * scale;
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.setLineDash(dashed ? [6, 6] : []);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = color;
-        ctx.strokeRect(x, y, w, h);
-        const hs = 6;
-        ctx.fillStyle = color;
-        const dots = [
-          [x, y],
-          [x + w, y],
-          [x, y + h],
-          [x + w, y + h],
-          [x + w / 2, y],
-          [x + w / 2, y + h],
-          [x, y + h / 2],
-          [x + w, y + h / 2],
-        ];
-        for (const [dx, dy] of dots)
-          ctx.fillRect(dx - hs, dy - hs, hs * 2, hs * 2);
-        ctx.restore();
-      };
+              if (ghosts && gAlpha > 0) {
+                for (const tck of ts) {
+                  if (tck.hidden) continue;
+                  const color = ls.colors[tck.class_id] || '#66d9ef';
+                  const prev = rectAtFrame(tck, drawIndex - 1, itp);
+                  if (prev) drawRect(prev, color, gAlpha, true);
+                  const next = rectAtFrame(tck, drawIndex + 1, itp);
+                  if (next) drawRect(next, color, gAlpha, true);
+                }
+              }
 
-      // ghosts (previous/next frame preview)
-      if (showGhosts && ghostAlpha > 0) {
-        for (const t of tracks) {
-          if (t.hidden) continue;
-          const color = labelSet.colors[t.class_id] || "#66d9ef";
-          const prev = rectAtFrame(t, frame - 1, interpolate);
-          if (prev) drawRect(prev, color, ghostAlpha, true);
-          const next = rectAtFrame(t, frame + 1, interpolate);
-          if (next) drawRect(next, color, ghostAlpha, true);
+              for (const tck of ts) {
+                if (tck.hidden) continue;
+                const r = rectAtFrame(tck, drawIndex, itp);
+                if (!r) continue;
+                const color = ls.colors[tck.class_id] || '#66d9ef';
+                const isSel = sel.has(tck.track_id);
+                drawRect(r, color, isSel ? 1 : 0.7, false);
+                ctx.save();
+                const cls = ls.classes[tck.class_id] ?? tck.class_id;
+                const tag = `${cls}${tck.name ? ` (${tck.name})` : ''}`;
+                ctx.font = '12px monospace';
+                const x = r.x * sc, y = r.y * sc, w = ctx.measureText(tag).width + 8;
+                ctx.fillStyle = color;
+                ctx.globalAlpha = 0.5;
+                ctx.fillRect(x, y - 18, w, 18);
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = '#fff';
+                ctx.fillText(tag, x + 4, y - 5);
+                ctx.restore();
+              }
+              if (dragRef.current.creating && dr) {
+                const x = dr.x * sc, y = dr.y * sc, w = dr.w * sc, h = dr.h * sc;
+                ctx.save();
+                ctx.setLineDash([4, 4]);
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = '#fff';
+                ctx.strokeRect(x, y, w, h);
+                const label = `${Math.round(dr.w)}×${Math.round(dr.h)}`;
+                ctx.font = '12px monospace';
+                const tw = ctx.measureText(label).width + 6;
+                const th = 16;
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.fillRect(x + w - tw, y + h + 4, tw, th);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, x + w - tw + 3, y + h + 16);
+                ctx.restore();
+              }
+              // Directional prefetch toward sampled target to keep pipeline warm
+              const desired = target;
+              const dir = desired > drawIndex ? 1 : desired < drawIndex ? -1 : 0;
+              const total = (localFiles ? localFiles.length : files.length);
+              const ahead = dir ? 8 : 4; // number of steps ahead
+              if (stride < 4 && (t - lastDecodeReqRef.current >= decodeIntervalMsRef.current)) {
+                lastDecodeReqRef.current = t;
+                for (let d = 1; d <= ahead; d++) {
+                  const idx = drawIndex + dir * d * stride;
+                  if (idx >= 0 && idx < total && !cacheRef.current.has(idx)) {
+                    void getImage(idx);
+                    break; // request one per gate to avoid bursts
+                  }
+                }
+              }
+              // If stable and current bitmap is low-res, request a hi-res upgrade in the background
+              if (stride === 1 && drawBmp && drawBmp.width < c.width && !upgradeInFlightRef.current.has(drawIndex)) {
+                if (t - lastDecodeReqRef.current >= decodeIntervalMsRef.current) {
+                  lastDecodeReqRef.current = t;
+                  upgradeInFlightRef.current.add(drawIndex);
+                  decodeScaleHintRef.current = 1;
+                  void getImage(drawIndex, 1).then(() => {
+                    upgradeInFlightRef.current.delete(drawIndex);
+                    setRenderTick(x => x + 1);
+                  });
+                }
+              }
+            }
+          }
         }
       }
-
-      // current rects
-      for (const t of tracks) {
-        if (t.hidden) continue;
-        const r = rectAtFrame(t, frame, interpolate);
-        if (!r) continue;
-        const color = labelSet.colors[t.class_id] || "#66d9ef";
-        const isSel = selectedIds.has(t.track_id);
-        drawRect(r, color, isSel ? 1 : 0.7, false);
-
-        // tag
-        ctx.save();
-        const cls = labelSet.classes[t.class_id] ?? t.class_id;
-        const tag = `${cls}${t.name ? ` (${t.name})` : ""}`;
-        ctx.font = "12px monospace";
-        const x = r.x * scale,
-          y = r.y * scale,
-          w = ctx.measureText(tag).width + 8;
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.5;
-        ctx.fillRect(x, y - 18, w, 18);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#fff";
-        ctx.fillText(tag, x + 4, y - 5);
-        ctx.restore();
-      }
-      if (dragRef.current.creating && draftRect) {
-        const x = draftRect.x * scale,
-          y = draftRect.y * scale,
-          w = draftRect.w * scale,
-          h = draftRect.h * scale;
-        ctx.save();
-        ctx.setLineDash([4, 4]);
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = "#fff";
-        ctx.strokeRect(x, y, w, h);
-        const label = `${Math.round(draftRect.w)}×${Math.round(draftRect.h)}`;
-        ctx.font = "12px monospace";
-        const tw = ctx.measureText(label).width + 6;
-        const th = 16;
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(x + w - tw, y + h + 4, tw, th);
-        ctx.fillStyle = "#fff";
-        ctx.fillText(label, x + w - tw + 3, y + h + 16);
-        ctx.restore();
-      }
-    })();
-    return () => {
-      cancelled = true;
+      rafIdRef.current = requestAnimationFrame(tick);
     };
-  }, [
-    frame,
-    tracks,
-    selectedIds,
-    labelSet.classes,
-    labelSet.colors,
-    interpolate,
-    showGhosts,
-    ghostAlpha,
-    meta,
-    getImage,
-    scale,
-    draftRect,
-  ]);
+    rafIdRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    };
+  }, [targetFPS, getImage, files.length, localFiles]);
 
   /** ===== Keyboard ===== */
   // Track Shift pressed state for cursor affordance
@@ -1230,7 +1332,7 @@ const SequenceLabeler: React.FC<{
         playing={playing}
         onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
         onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
-        onSeek={(val) => setFrame(val)}
+        onSeek={(val) => scheduleSeek(val)}
         onTogglePlay={() => setPlaying((p) => !p)}
         onTogglePresence={togglePresenceAtCurrent}
         canTogglePresence={!!selectedTracks.length}
@@ -1240,6 +1342,8 @@ const SequenceLabeler: React.FC<{
         onExportJSON={exportJSON}
         onExportYOLO={exportYOLO}
         onOpenShortcuts={() => setKeyUIOpen(true)}
+        fps={targetFPS}
+        onChangeFPS={(v) => setTargetFPS(v)}
       />
 
       {/* Viewport + RightPanel */}

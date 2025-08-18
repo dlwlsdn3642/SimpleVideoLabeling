@@ -71,3 +71,21 @@
 - `SequenceLabeler/SLRightPanel.tsx` – RightPanel for label sets and tracks (lines 1-224).
 - `SequenceLabeler/SLTimelineSection.tsx` – Timeline with TimelineTopBar, resizer, and view (lines 1-105).
 - `App.tsx` – ProjectPanel managing projects and tasks (lines 102-120).
+
+## Performance Notes (Scrubbing, FPS, Decode Pipeline)
+
+- Rendering and input are decoupled. A persistent RAF loop drives canvas drawing at a fixed, user-selectable FPS (30/45/60).
+- Image decode requests are also cadence-gated to match FPS, preventing bursts on long sequences (e.g., 1000+ frames).
+- When the exact target frame is not yet decoded, the canvas draws the nearest cached frame or the last drawn frame to avoid blanks; it refreshes when the target becomes ready.
+- Directional prefetch warms a small window ahead of the actually drawn frame.
+- During fast scrubs, decode uses downscaled resolution and upgrades to full-res once stable to reduce QHD costs.
+- LRU eviction no longer calls `ImageBitmap.close()` to keep a safe fallback; cache size increased for better hit rate.
+
+Updated files:
+- `mylab/src/SequenceLabeler/SequenceLabeler.tsx`: FPS option state, render/decode cadence, fallback, prefetch.
+- `mylab/src/SequenceLabeler/SLTopBar.tsx`: Added FPS selector UI (30/45/60).
+- `mylab/src/lib/LRUFrames.ts`: Safer eviction and helper.
+
+How to test:
+- Run `npm test` inside `mylab`.
+- In the app, scrub quickly over 1000 frames at QHD; adjust FPS in the TopBar to balance smoothness vs performance.
