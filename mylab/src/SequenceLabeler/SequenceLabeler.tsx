@@ -76,6 +76,7 @@ const SequenceLabeler: React.FC<{
   leftTopExtra,
 }) => {
   // media
+  const storagePrefix = taskId ?? indexUrl;
   const [meta, setMeta] = useState<IndexMeta | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
@@ -228,7 +229,6 @@ const SequenceLabeler: React.FC<{
     undo: "Ctrl+z",
     redo: "Ctrl+y",
   };
-  const storagePrefix = taskId ?? indexUrl;
   const [keymap, setKeymap] = useState<KeyMap>(() => {
     const raw = localStorage.getItem(`${storagePrefix}::keymap_v2`);
     return raw ? { ...DEFAULT_KEYMAP, ...JSON.parse(raw) } : DEFAULT_KEYMAP;
