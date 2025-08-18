@@ -84,7 +84,6 @@ const SequenceLabeler: React.FC<{
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const [sideWidth, setSideWidth] = useState(240);
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -405,67 +404,51 @@ const SequenceLabeler: React.FC<{
     return () => clearTimeout(t);
   }, [meta, labelSet, tracks, frame, interpolate, showGhosts, storagePrefix]);
 
-  // observe timeline width
+  // Observe layout changes and batch state updates
   useEffect(() => {
-    if (!timelineViewRef.current) return;
-    const el = timelineViewRef.current;
-    const ro = new ResizeObserver((entries) => {
-      const cr = entries[0].contentRect;
-      setTimelineWidth(Math.max(300, cr.width - 24)); // padding 12*2
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // adjust side panel width to fill canvas height
-  useEffect(() => {
-    if (!meta || !workspaceRef.current) return;
-    const el = workspaceRef.current;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const timelineH =
-        timelineViewRef.current?.getBoundingClientRect().height ?? 0;
-      const topBarH =
-        timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
-      const resizerH =
-        timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
-      const totalW = rect.width;
-      const availH = Math.max(0, rect.height - timelineH - topBarH - resizerH);
-      if (totalW <= 0) return;
-      // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
-      const safeAvailH = Math.max(0, availH);
-      const desiredCanvasW = safeAvailH * (meta.width / meta.height);
-      // Compute responsive constraints equivalent to CSS vars
-      const vw = Math.max(320, rect.width || window.innerWidth || totalW);
-      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16)); // clamp(128px, 16vw, 220px)
-      const rightMaxPx = Math.min(vw * 0.36, 420);                // min(36vw, 420px)
-      let newSide = totalW - desiredCanvasW;
-      // bound using JS-calculated min/max to match CSS clamp()
-      newSide = Math.min(Math.max(newSide, rightMinPx), Math.min(rightMaxPx, totalW));
-      const canvasW = Math.max(0, totalW - newSide);
-      // Never let canvas height exceed available height
-      const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
-      const scaleByW = canvasW / meta.width;
-      const nextScale = Math.min(scaleByH > 0 ? scaleByH : scale, scaleByW);
-      setSideWidth(newSide);
-      setScale(nextScale);
+    if (!timelineViewRef.current || !viewportWrapRef.current) return;
+    const timelineEl = timelineViewRef.current;
+    const viewportEl = viewportWrapRef.current;
+    let rafId: number | null = null;
+    let timelineW = 0;
+    let vpW = 0;
+    let vpH = 0;
+    let lastTimelineW = -1;
+    let lastScale = -1;
+    const apply = () => {
+      rafId = null;
+      const nextTimelineW = Math.max(300, timelineW - 24); // padding 12*2
+      if (nextTimelineW !== lastTimelineW) {
+        lastTimelineW = nextTimelineW;
+        setTimelineWidth(nextTimelineW);
+      }
+      if (meta) {
+        const nextScale = Math.min(vpW / meta.width, vpH / meta.height);
+        if (nextScale !== lastScale) {
+          lastScale = nextScale;
+          setScale(nextScale);
+        }
+      }
     };
-    update();
-    const ro = new ResizeObserver(update);
-    const roTimeline = new ResizeObserver(update);
-    const roTopBar = new ResizeObserver(update);
-    const roResizer = new ResizeObserver(update);
-    ro.observe(el);
-    if (timelineViewRef.current) roTimeline.observe(timelineViewRef.current);
-    if (timelineTopBarRef.current) roTopBar.observe(timelineTopBarRef.current);
-    if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        if (e.target === timelineEl) {
+          timelineW = e.contentRect.width;
+        } else if (e.target === viewportEl) {
+          const cr = e.contentRect;
+          vpW = cr.width;
+          vpH = cr.height;
+        }
+      }
+      if (rafId == null) rafId = requestAnimationFrame(apply);
+    });
+    ro.observe(timelineEl);
+    ro.observe(viewportEl);
     return () => {
       ro.disconnect();
-      roTimeline.disconnect();
-      roTopBar.disconnect();
-      roResizer.disconnect();
+      if (rafId != null) cancelAnimationFrame(rafId);
     };
-  }, [meta, timelineHeight]);
+  }, [meta]);
 
   /** ===== Image loading ===== */
   // Deduplicate in-flight image loads to improve fast seeking responsiveness
@@ -1265,7 +1248,6 @@ const SequenceLabeler: React.FC<{
         ref={workspaceRef}
         className={styles.workspace}
         data-testid="Workspace"
-        style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
       >
         {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
