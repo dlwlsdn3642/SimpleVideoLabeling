@@ -55,7 +55,8 @@
 .viewport {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto; /* maintain aspect ratio from inline style */
+  max-height: 100%; /* never exceed the allocated row height */
   box-sizing: border-box;
   border: 1px solid var(--border);
   image-rendering: pixelated;
