@@ -404,45 +404,46 @@ const SequenceLabeler: React.FC<{
     return () => clearTimeout(t);
   }, [meta, labelSet, tracks, frame, interpolate, showGhosts, storagePrefix]);
 
-  // observe timeline width
+  // Observe layout changes and batch state updates
   useEffect(() => {
-    if (!timelineViewRef.current) return;
-    const el = timelineViewRef.current;
-    let prev = -1;
-    const ro = new ResizeObserver((entries) => {
-      const next = Math.max(300, entries[0].contentRect.width - 24); // padding 12*2
-      if (next !== prev) {
-        prev = next;
-        setTimelineWidth(next);
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Update canvas scale based on available viewport size
-  useEffect(() => {
-    if (!meta || !viewportWrapRef.current) return;
-    const el = viewportWrapRef.current;
-    let lastScale = -1;
+    if (!timelineViewRef.current || !viewportWrapRef.current) return;
+    const timelineEl = timelineViewRef.current;
+    const viewportEl = viewportWrapRef.current;
     let rafId: number | null = null;
-    let w = 0;
-    let h = 0;
+    let timelineW = 0;
+    let vpW = 0;
+    let vpH = 0;
+    let lastTimelineW = -1;
+    let lastScale = -1;
     const apply = () => {
       rafId = null;
-      const next = Math.min(w / meta.width, h / meta.height);
-      if (next !== lastScale) {
-        lastScale = next;
-        setScale(next);
+      const nextTimelineW = Math.max(300, timelineW - 24); // padding 12*2
+      if (nextTimelineW !== lastTimelineW) {
+        lastTimelineW = nextTimelineW;
+        setTimelineWidth(nextTimelineW);
+      }
+      if (meta) {
+        const nextScale = Math.min(vpW / meta.width, vpH / meta.height);
+        if (nextScale !== lastScale) {
+          lastScale = nextScale;
+          setScale(nextScale);
+        }
       }
     };
     const ro = new ResizeObserver((entries) => {
-      const cr = entries[0].contentRect;
-      w = cr.width;
-      h = cr.height;
+      for (const e of entries) {
+        if (e.target === timelineEl) {
+          timelineW = e.contentRect.width;
+        } else if (e.target === viewportEl) {
+          const cr = e.contentRect;
+          vpW = cr.width;
+          vpH = cr.height;
+        }
+      }
       if (rafId == null) rafId = requestAnimationFrame(apply);
     });
-    ro.observe(el);
+    ro.observe(timelineEl);
+    ro.observe(viewportEl);
     return () => {
       ro.disconnect();
       if (rafId != null) cancelAnimationFrame(rafId);
