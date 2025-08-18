@@ -9,3 +9,8 @@ declare global {
   }
 }
 
+// Vite worker import type
+declare module '*?worker' {
+  const WorkerFactory: { new (): Worker };
+  export default WorkerFactory;
+}

@@ -34,6 +34,8 @@ import {
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle } from "../utils/handles";
+// @ts-ignore - worker type is declared in global.d.ts
+import DecodeWorker from "../lib/decode.worker?worker";
 
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
@@ -101,6 +103,12 @@ const SequenceLabeler: React.FC<{
   });
   const drawRafRef = useRef<number | null>(null);
   const lastDrawTimeRef = useRef(0);
+  // Decode cadence gate tied to targetFPS
+  const lastDecodeReqRef = useRef(0);
+  const decodeIntervalMsRef = useRef(1000 / Math.max(1, 30));
+  useEffect(() => {
+    decodeIntervalMsRef.current = 1000 / Math.max(1, targetFPS);
+  }, [targetFPS]);
 
   // Persist targetFPS selection
   useEffect(() => {
@@ -490,6 +498,43 @@ const SequenceLabeler: React.FC<{
   /** ===== Image loading ===== */
   // Deduplicate in-flight image loads to improve fast seeking responsiveness
   const inFlightRef = useRef(new Map<number, Promise<ImageBitmap | null>>());
+  const workerRef = useRef<Worker | null>(null);
+  const workerReqIdRef = useRef(1);
+  const workerPendingRef = useRef(new Map<number, (res: ImageBitmap | null) => void>());
+
+  // Init decode worker
+  useEffect(() => {
+    const w = new DecodeWorker();
+    workerRef.current = w;
+    w.onmessage = (e: MessageEvent) => {
+      const { id, ok, bitmap } = e.data as { id: number; ok: boolean; bitmap?: ImageBitmap };
+      const resolver = workerPendingRef.current.get(id);
+      if (resolver) {
+        workerPendingRef.current.delete(id);
+        resolver(ok ? (bitmap ?? null) : null);
+      }
+    };
+    return () => {
+      try { w.terminate(); } catch { /* ignore */ }
+      workerRef.current = null;
+      workerPendingRef.current.clear();
+    };
+  }, []);
+
+  const decodeInWorker = useCallback((blob: Blob): Promise<ImageBitmap | null> => {
+    return new Promise((resolve) => {
+      const w = workerRef.current;
+      if (!w) { resolve(null); return; }
+      const id = workerReqIdRef.current++;
+      workerPendingRef.current.set(id, resolve);
+      try {
+        w.postMessage({ id, blob });
+      } catch {
+        workerPendingRef.current.delete(id);
+        resolve(null);
+      }
+    });
+  }, []);
   const getImage = useCallback(
     async (idx: number): Promise<ImageBitmap | null> => {
       if (!meta) return null;
@@ -506,17 +551,17 @@ const SequenceLabeler: React.FC<{
         try {
           if (localFiles) {
             const file = await localFiles[idx].handle.getFile();
-            const bmp = await createImageBitmap(file);
-            cacheRef.current.set(idx, bmp);
-            return bmp;
+            const bmp = await decodeInWorker(file);
+            if (bmp) cacheRef.current.set(idx, bmp);
+            return bmp ?? null;
           } else {
             const url = `${framesBaseUrl}/${files[idx]}`;
             const res = await fetch(url, { cache: "force-cache" });
             if (!res.ok) throw new Error(`image fetch ${res.status}`);
             const blob = await res.blob();
-            const bmp = await createImageBitmap(blob);
-            cacheRef.current.set(idx, bmp);
-            return bmp;
+            const bmp = await decodeInWorker(blob);
+            if (bmp) cacheRef.current.set(idx, bmp);
+            return bmp ?? null;
           }
         } catch {
           return null;
@@ -530,17 +575,27 @@ const SequenceLabeler: React.FC<{
     [meta, files, framesBaseUrl, localFiles],
   );
 
-  // Prefetch around current frame (non-blocking)
+  // Prefetch around current frame (non-blocking, decode-gated)
   useEffect(() => {
     const total = localFiles ? localFiles.length : files.length;
     if (!meta || total <= 0) return;
+    const now = performance.now();
+    if (now - lastDecodeReqRef.current < decodeIntervalMsRef.current) return;
     for (let d = 1; d <= prefetchRadius; d++) {
       const before = frame - d;
+      if (before >= 0 && !cacheRef.current.has(before)) {
+        lastDecodeReqRef.current = now;
+        void getImage(before).then(() => setRenderTick((t) => t + 1));
+        return;
+      }
       const after = frame + d;
-      if (before >= 0 && !cacheRef.current.has(before)) void getImage(before);
-      if (after < total && !cacheRef.current.has(after)) void getImage(after);
+      if (after < total && !cacheRef.current.has(after)) {
+        lastDecodeReqRef.current = now;
+        void getImage(after).then(() => setRenderTick((t) => t + 1));
+        return;
+      }
     }
-  }, [frame, meta, files.length, localFiles, getImage, prefetchRadius]);
+  }, [frame, meta, files.length, localFiles, prefetchRadius]);
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
   useEffect(() => {
@@ -576,7 +631,11 @@ const SequenceLabeler: React.FC<{
       let bmp: ImageBitmap | null = cacheRef.current.get(frame) ?? null;
       let drawFrameIndex = frame;
       if (!bmp) {
-        void getImage(frame).then(() => setRenderTick((t) => t + 1));
+        const now2 = performance.now();
+        if (now2 - lastDecodeReqRef.current >= decodeIntervalMsRef.current) {
+          lastDecodeReqRef.current = now2;
+          void getImage(frame).then(() => setRenderTick((t) => t + 1));
+        }
         const maxSearch = 40;
         for (let d = 1; d <= maxSearch; d++) {
           const before = frame - d;
