@@ -68,17 +68,22 @@ const SLTopBar: React.FC<Props> = ({
       </button>
       <span style={{ opacity: 0.85 }}>Frame {frame + 1}/{totalFrames || "—"}</span>
 
-      <label style={{ marginLeft: 12 }}>
+      <label style={{ marginLeft: 12, display: "inline-flex", alignItems: "center" }}>
         FPS
         <select
           aria-label="Target FPS"
+          title="Target FPS"
           value={fps}
           onChange={(e) => onChangeFPS(parseInt(e.target.value, 10))}
-          style={{ marginLeft: 6 }}
+          className={styles.seekRange}
+          style={{ marginLeft: 6, width: 84 }}
         >
+          <option value={15}>15</option>
+          <option value={24}>24</option>
           <option value={30}>30</option>
           <option value={45}>45</option>
           <option value={60}>60</option>
+          <option value={90}>90</option>
         </select>
       </label>
 

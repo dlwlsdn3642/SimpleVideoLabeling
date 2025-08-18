@@ -92,7 +92,12 @@ const SequenceLabeler: React.FC<{
   // Bump to coalesce redraws when images finish decoding
   const [renderTick, setRenderTick] = useState(0);
   // Dedicated render loop (decoupled from React re-renders) capped at target FPS
-  const [targetFPS, setTargetFPS] = useState<number>(30);
+  const [targetFPS, setTargetFPS] = useState<number>(() => {
+    const key = `${storagePrefix}::target_fps`;
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+    const v = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(v) && v > 0 ? v : 30;
+  });
   const rafIdRef = useRef<number | null>(null);
   const lastTickRef = useRef(0);
   // Throttle decode requests independently from render; keeps pipeline stable for large sequences
@@ -104,6 +109,13 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     decodeIntervalMsRef.current = 1000 / targetFPS;
   }, [targetFPS]);
+
+  // Persist targetFPS selection
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${storagePrefix}::target_fps`, String(targetFPS));
+    } catch {/* ignore */}
+  }, [targetFPS, storagePrefix]);
 
   // labels
   const [labelSet, setLabelSet] = useState<LabelSet>({
