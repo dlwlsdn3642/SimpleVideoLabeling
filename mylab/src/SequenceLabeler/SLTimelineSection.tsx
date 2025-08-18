@@ -4,9 +4,11 @@ import { Timeline } from "../components";
 import type { Track, LabelSet } from "../types";
 import { shouldInjectError } from "../utils/debug";
 
+/* Timeline */
+
 type Props = {
-  timelineBarRef: RefObject<HTMLDivElement | null>;
-  timelineWrapRef: RefObject<HTMLDivElement | null>;
+  timelineTopBarRef: RefObject<HTMLDivElement | null>;
+  timelineViewRef: RefObject<HTMLDivElement | null>;
   timelineResizerRef?: RefObject<HTMLDivElement | null>;
   timelineHeight?: number | null;
   frame: number;
@@ -29,8 +31,8 @@ type Props = {
 };
 
 const SLTimelineSection: FC<Props> = ({
-  timelineBarRef,
-  timelineWrapRef,
+  timelineTopBarRef,
+  timelineViewRef,
   timelineResizerRef,
   timelineHeight,
   frame,
@@ -55,8 +57,8 @@ const SLTimelineSection: FC<Props> = ({
     throw new Error('Injected error: SLTimelineSection');
   }
   return (
-    <>
-      <div ref={timelineBarRef} className={styles.timelineBar}>
+    <div data-testid="Timeline">
+      <div ref={timelineTopBarRef} className={styles.timelineTopBar} data-testid="TimelineTopBar">
         <button title="Prev frame" onClick={onPrevFrame} aria-label="Previous frame">←</button>
         <button title="Next frame" onClick={onNextFrame} aria-label="Next frame">→</button>
         <span style={{ opacity: 0.85 }}>
@@ -75,12 +77,14 @@ const SLTimelineSection: FC<Props> = ({
       <div
         ref={timelineResizerRef}
         className={styles.timelineResizer}
+        data-testid="TimelineResizer"
         onMouseDown={onStartResize}
       />
 
       <div
-        ref={timelineWrapRef}
-        className={styles.timelineWrap}
+        ref={timelineViewRef}
+        className={styles.timelineView}
+        data-testid="TimelineView"
         style={timelineHeight != null ? { height: `${timelineHeight}px` } : undefined}
       >
         <Timeline
@@ -98,7 +102,7 @@ const SLTimelineSection: FC<Props> = ({
           rowHeight={rowHeight}
         />
       </div>
-    </>
+    </div>
   );
 };
 

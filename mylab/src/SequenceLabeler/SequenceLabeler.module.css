@@ -21,7 +21,7 @@
   transition: background-color 160ms ease, border-color 160ms ease;
 }
 
-.workArea {
+.workspace {
   display: grid;
   min-height: 0;
   height: 100%;
@@ -37,7 +37,7 @@
   transition: background-color 160ms ease;
 }
 
-.canvasWrap {
+.viewportWrap {
   display: grid;
   place-items: center;
   width: 100%;
@@ -45,7 +45,7 @@
   overflow: hidden; /* prevent canvas overflow overlapping timeline */
 }
 
-.canvasEl {
+.viewport {
   display: block;
   /* Lock by height to prevent pushing timeline */
   height: 100%;
@@ -55,7 +55,7 @@
   image-rendering: pixelated;
 }
 
-.timelineBar {
+.timelineTopBar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -76,7 +76,7 @@
 }
 .timelineResizer:hover { background: rgba(255,255,255,0.05); }
 
-.timelineWrap {
+.timelineView {
   padding: 6px 12px;
   border-top: 1px solid var(--border);
   /* Responsive timeline height with CSS var override */

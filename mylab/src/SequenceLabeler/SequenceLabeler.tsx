@@ -35,6 +35,8 @@ import {
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle } from "../utils/handles";
 
+/* Workspace (Viewport, RightPanel, Timeline) with TopBar */
+
 const DEFAULT_COLORS = [
   "#e6194b",
   "#3cb44b",
@@ -75,9 +77,12 @@ const SequenceLabeler: React.FC<{
   const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
-  const workAreaRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportWrapRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  // Legacy alias (workAreaRef) kept for backward compatibility
+  const workAreaRef = workspaceRef;
+  void workAreaRef;
   const [sideWidth, setSideWidth] = useState(240);
   const MIN_SIDE_WIDTH = 88;
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
@@ -203,8 +208,8 @@ const SequenceLabeler: React.FC<{
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
   // layout refs for timeline area
-  const timelineWrapRef = useRef<HTMLDivElement | null>(null);
-  const timelineBarRef = useRef<HTMLDivElement | null>(null);
+  const timelineViewRef = useRef<HTMLDivElement | null>(null);
+  const timelineTopBarRef = useRef<HTMLDivElement | null>(null);
   const timelineResizerRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
   const [timelineHeight, setTimelineHeight] = useState<number | null>(null);
@@ -401,8 +406,8 @@ const SequenceLabeler: React.FC<{
 
   // observe timeline width
   useEffect(() => {
-    if (!timelineWrapRef.current) return;
-    const el = timelineWrapRef.current;
+    if (!timelineViewRef.current) return;
+    const el = timelineViewRef.current;
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0].contentRect;
       setTimelineWidth(Math.max(300, cr.width - 24)); // padding 12*2
@@ -413,18 +418,18 @@ const SequenceLabeler: React.FC<{
 
   // adjust side panel width to fill canvas height
   useEffect(() => {
-    if (!meta || !workAreaRef.current) return;
-    const el = workAreaRef.current;
+    if (!meta || !workspaceRef.current) return;
+    const el = workspaceRef.current;
     const update = () => {
       const rect = el.getBoundingClientRect();
       const timelineH =
-        timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
-      const toolbarH =
-        timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+        timelineViewRef.current?.getBoundingClientRect().height ?? 0;
+      const topBarH =
+        timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
       const resizerH =
         timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
-      const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
+      const availH = Math.max(0, rect.height - timelineH - topBarH - resizerH);
       if (totalW <= 0) return;
       // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
       const safeAvailH = Math.max(0, availH);
@@ -447,16 +452,16 @@ const SequenceLabeler: React.FC<{
     update();
     const ro = new ResizeObserver(update);
     const roTimeline = new ResizeObserver(update);
-    const roBar = new ResizeObserver(update);
+    const roTopBar = new ResizeObserver(update);
     const roResizer = new ResizeObserver(update);
     ro.observe(el);
-    if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
-    if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
+    if (timelineViewRef.current) roTimeline.observe(timelineViewRef.current);
+    if (timelineTopBarRef.current) roTopBar.observe(timelineTopBarRef.current);
     if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
       roTimeline.disconnect();
-      roBar.disconnect();
+      roTopBar.disconnect();
       roResizer.disconnect();
     };
   }, [meta, timelineHeight]);
@@ -511,7 +516,7 @@ const SequenceLabeler: React.FC<{
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
   useEffect(() => {
-    const c = canvasRef.current;
+    const c = viewportRef.current;
     if (!c || !meta) return;
     const W = Math.round(meta.width * scale);
     const H = Math.round(meta.height * scale);
@@ -523,7 +528,7 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const c = canvasRef.current;
+      const c = viewportRef.current;
       if (!c || !meta) return;
       const ctx = c.getContext("2d");
       if (!ctx) return;
@@ -1246,24 +1251,28 @@ const SequenceLabeler: React.FC<{
         onOpenShortcuts={() => setKeyUIOpen(true)}
       />
 
-      {/* Middle: Canvas + Right panel */}
+      {/* Viewport + RightPanel */}
+      {/* Workspace */}
       <div
-        ref={workAreaRef}
-        className={styles.workArea}
+        ref={workspaceRef}
+        className={styles.workspace}
+        data-testid="Workspace"
         style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
       >
-        {/* Canvas + Timeline */}
+        {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
+          {/* Viewport */}
           <div
-            ref={canvasWrapRef}
-            className={styles.canvasWrap}
+            ref={viewportWrapRef}
+            className={styles.viewportWrap}
           >
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
               <canvas
-                ref={canvasRef}
-                className={styles.canvasEl}
+                ref={viewportRef}
+                data-testid="Viewport"
+                className={styles.viewport}
                 style={{
                   aspectRatio: meta ? `${meta.width} / ${meta.height}` : undefined,
                   cursor:
@@ -1280,8 +1289,8 @@ const SequenceLabeler: React.FC<{
             )}
           </div>
           <SLTimelineSection
-            timelineBarRef={timelineBarRef}
-            timelineWrapRef={timelineWrapRef}
+            timelineTopBarRef={timelineTopBarRef}
+            timelineViewRef={timelineViewRef}
             timelineResizerRef={timelineResizerRef}
             timelineHeight={timelineHeight}
             frame={frame}
@@ -1312,12 +1321,12 @@ const SequenceLabeler: React.FC<{
             onStartResize={(ev) => {
               ev.preventDefault();
               const startY = ev.clientY;
-              const startH = timelineWrapRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
-              const workRect = workAreaRef.current?.getBoundingClientRect();
-              const toolbarH = timelineBarRef.current?.getBoundingClientRect().height ?? 0;
-              const totalH = workRect?.height ?? 0;
+              const startH = timelineViewRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
+              const workspaceRect = workspaceRef.current?.getBoundingClientRect();
+              const topBarH = timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
+              const totalH = workspaceRect?.height ?? 0;
               const minH = 80;
-              const maxH = Math.max(minH, Math.min((totalH - toolbarH) - 120, 600));
+              const maxH = Math.max(minH, Math.min((totalH - topBarH) - 120, 600));
               const onMove = (e: MouseEvent) => {
                 const dy = e.clientY - startY;
                 // Resizer is above the timeline: moving down should reduce height
@@ -1334,7 +1343,7 @@ const SequenceLabeler: React.FC<{
           />
         </div>
 
-        {/* Right panel */}
+        {/* RightPanel */}
           <SLRightPanel
             labelSet={labelSet}
           setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
