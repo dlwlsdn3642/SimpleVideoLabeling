@@ -84,7 +84,7 @@ const SequenceLabeler: React.FC<{
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
+  const cacheRef = useRef(new LRUFrames<string>(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
   // labels
@@ -452,58 +452,78 @@ const SequenceLabeler: React.FC<{
 
   /** ===== Image loading ===== */
   // Deduplicate in-flight image loads to improve fast seeking responsiveness
-  const inFlightRef = useRef(new Map<number, Promise<ImageBitmap | null>>());
+  const inFlightRef = useRef(new Map<string, Promise<ImageBitmap | null>>());
   const getImage = useCallback(
     async (idx: number): Promise<ImageBitmap | null> => {
       if (!meta) return null;
       const total = localFiles ? localFiles.length : files.length;
       if (idx < 0 || idx >= total) return null;
 
-      const cached = cacheRef.current.get(idx);
+      const W = Math.round(meta.width * scale);
+      const H = Math.round(meta.height * scale);
+      const key = `${idx}_${W}x${H}`;
+
+      const cached = cacheRef.current.get(key);
       if (cached) return cached;
 
-      const existing = inFlightRef.current.get(idx);
+      const existing = inFlightRef.current.get(key);
       if (existing) return existing;
 
       const p = (async () => {
         try {
           if (localFiles) {
             const file = await localFiles[idx].handle.getFile();
-            const bmp = await createImageBitmap(file);
-            cacheRef.current.set(idx, bmp);
+            const bmp = await createImageBitmap(file, {
+              resizeWidth: W,
+              resizeHeight: H,
+              resizeQuality: "medium",
+              imageOrientation: "none",
+              colorSpaceConversion: "none",
+            });
+            cacheRef.current.set(key, bmp);
             return bmp;
           } else {
             const url = `${framesBaseUrl}/${files[idx]}`;
             const res = await fetch(url, { cache: "force-cache" });
             if (!res.ok) throw new Error(`image fetch ${res.status}`);
             const blob = await res.blob();
-            const bmp = await createImageBitmap(blob);
-            cacheRef.current.set(idx, bmp);
+            const bmp = await createImageBitmap(blob, {
+              resizeWidth: W,
+              resizeHeight: H,
+              resizeQuality: "medium",
+              imageOrientation: "none",
+              colorSpaceConversion: "none",
+            });
+            cacheRef.current.set(key, bmp);
             return bmp;
           }
         } catch {
           return null;
         } finally {
-          inFlightRef.current.delete(idx);
+          inFlightRef.current.delete(key);
         }
       })();
-      inFlightRef.current.set(idx, p);
+      inFlightRef.current.set(key, p);
       return p;
     },
-    [meta, files, framesBaseUrl, localFiles],
+    [meta, files, framesBaseUrl, localFiles, scale],
   );
 
   // prefetch around current frame (non-blocking, nearest-first)
   useEffect(() => {
     const total = localFiles ? localFiles.length : files.length;
     if (!meta || total <= 0) return;
+    const W = Math.round(meta.width * scale);
+    const H = Math.round(meta.height * scale);
     for (let d = 1; d <= prefetchRadius; d++) {
       const before = frame - d;
       const after = frame + d;
-      if (before >= 0 && !cacheRef.current.has(before)) void getImage(before);
-      if (after < total && !cacheRef.current.has(after)) void getImage(after);
+      const keyBefore = `${before}_${W}x${H}`;
+      const keyAfter = `${after}_${W}x${H}`;
+      if (before >= 0 && !cacheRef.current.has(keyBefore)) void getImage(before);
+      if (after < total && !cacheRef.current.has(keyAfter)) void getImage(after);
     }
-  }, [frame, meta, files.length, localFiles, getImage, prefetchRadius]);
+  }, [frame, meta, files.length, localFiles, getImage, prefetchRadius, scale]);
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
   useEffect(() => {
@@ -524,10 +544,11 @@ const SequenceLabeler: React.FC<{
       const ctx = c.getContext("2d");
       if (!ctx) return;
 
-      const bmpInCache = cacheRef.current.has(frame);
-      const bmp = bmpInCache
-        ? cacheRef.current.get(frame)
-        : await getImage(frame);
+      const W = Math.round(meta.width * scale);
+      const H = Math.round(meta.height * scale);
+      const key = `${frame}_${W}x${H}`;
+      const bmpInCache = cacheRef.current.has(key);
+      const bmp = bmpInCache ? cacheRef.current.get(key) : await getImage(frame);
       if (cancelled || !bmp) return;
 
       ctx.imageSmoothingEnabled = false;
