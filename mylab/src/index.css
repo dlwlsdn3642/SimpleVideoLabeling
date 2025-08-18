@@ -26,6 +26,8 @@
   --timeline-height: clamp(120px, 24vh, 280px);
   /* Right panel minimum width to avoid crowding */
   --right-min: clamp(128px, 16vw, 220px);
+  /* Right panel maximum width to keep layout balanced */
+  --right-max: clamp(240px, 40vw, 480px);
   --seek-min: clamp(120px, 20vw, 280px);
 }
 
