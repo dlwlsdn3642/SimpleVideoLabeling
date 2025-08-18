@@ -84,7 +84,6 @@ const SequenceLabeler: React.FC<{
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const [sideWidth, setSideWidth] = useState(240);
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -417,55 +416,20 @@ const SequenceLabeler: React.FC<{
     return () => ro.disconnect();
   }, []);
 
-  // adjust side panel width to fill canvas height
+  // Update canvas scale based on available viewport size
   useEffect(() => {
-    if (!meta || !workspaceRef.current) return;
-    const el = workspaceRef.current;
+    if (!meta || !viewportWrapRef.current) return;
+    const el = viewportWrapRef.current;
     const update = () => {
       const rect = el.getBoundingClientRect();
-      const timelineH =
-        timelineViewRef.current?.getBoundingClientRect().height ?? 0;
-      const topBarH =
-        timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
-      const resizerH =
-        timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
-      const totalW = rect.width;
-      const availH = Math.max(0, rect.height - timelineH - topBarH - resizerH);
-      if (totalW <= 0) return;
-      // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
-      const safeAvailH = Math.max(0, availH);
-      const desiredCanvasW = safeAvailH * (meta.width / meta.height);
-      // Compute responsive constraints equivalent to CSS vars
-      const vw = Math.max(320, rect.width || window.innerWidth || totalW);
-      const rightMinPx = Math.min(220, Math.max(128, vw * 0.16)); // clamp(128px, 16vw, 220px)
-      const rightMaxPx = Math.min(vw * 0.36, 420);                // min(36vw, 420px)
-      let newSide = totalW - desiredCanvasW;
-      // bound using JS-calculated min/max to match CSS clamp()
-      newSide = Math.min(Math.max(newSide, rightMinPx), Math.min(rightMaxPx, totalW));
-      const canvasW = Math.max(0, totalW - newSide);
-      // Never let canvas height exceed available height
-      const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
-      const scaleByW = canvasW / meta.width;
-      const nextScale = Math.min(scaleByH > 0 ? scaleByH : scale, scaleByW);
-      setSideWidth(newSide);
-      setScale(nextScale);
+      const next = Math.min(rect.width / meta.width, rect.height / meta.height);
+      setScale(next);
     };
     update();
     const ro = new ResizeObserver(update);
-    const roTimeline = new ResizeObserver(update);
-    const roTopBar = new ResizeObserver(update);
-    const roResizer = new ResizeObserver(update);
     ro.observe(el);
-    if (timelineViewRef.current) roTimeline.observe(timelineViewRef.current);
-    if (timelineTopBarRef.current) roTopBar.observe(timelineTopBarRef.current);
-    if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
-    return () => {
-      ro.disconnect();
-      roTimeline.disconnect();
-      roTopBar.disconnect();
-      roResizer.disconnect();
-    };
-  }, [meta, timelineHeight]);
+    return () => ro.disconnect();
+  }, [meta]);
 
   /** ===== Image loading ===== */
   // Deduplicate in-flight image loads to improve fast seeking responsiveness
@@ -1265,7 +1229,6 @@ const SequenceLabeler: React.FC<{
         ref={workspaceRef}
         className={styles.workspace}
         data-testid="Workspace"
-        style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
       >
         {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
