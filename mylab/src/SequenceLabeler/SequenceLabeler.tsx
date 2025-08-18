@@ -78,8 +78,8 @@ const SequenceLabeler: React.FC<{
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
-  const viewportWrapRef = useRef<HTMLDivElement | null>(null);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  const workAreaRef = useRef<HTMLDivElement | null>(null);
   const [sideWidth, setSideWidth] = useState(240);
   const MIN_SIDE_WIDTH = 88;
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
@@ -428,9 +428,9 @@ const SequenceLabeler: React.FC<{
     const update = () => {
       const rect = el.getBoundingClientRect();
       const timelineH =
-        timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
+        timelineViewRef.current?.getBoundingClientRect().height ?? 0;
       const toolbarH =
-        timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+        timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
       const resizerH =
         timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
@@ -442,10 +442,13 @@ const SequenceLabeler: React.FC<{
       // Compute responsive constraints equivalent to CSS vars
       const vw = Math.max(320, rect.width || window.innerWidth || totalW);
       const rightMinPx = Math.min(220, Math.max(128, vw * 0.16)); // clamp(128px, 16vw, 220px)
-      const rightMaxPx = Math.min(vw * 0.36, 420);                // min(36vw, 420px)
+      const rightMaxPx = Math.min(vw * 0.36, 420); // min(36vw, 420px)
       let newSide = totalW - desiredCanvasW;
       // bound using JS-calculated min/max to match CSS clamp()
-      newSide = Math.min(Math.max(newSide, rightMinPx), Math.min(rightMaxPx, totalW));
+      newSide = Math.min(
+        Math.max(newSide, rightMinPx),
+        Math.min(rightMaxPx, totalW),
+      );
       const canvasW = Math.max(0, totalW - newSide);
       // Never let canvas height exceed available height
       const scaleByH = safeAvailH > 0 ? safeAvailH / meta.height : 0;
@@ -461,9 +464,10 @@ const SequenceLabeler: React.FC<{
     const roBar = new ResizeObserver(update);
     const roResizer = new ResizeObserver(update);
     ro.observe(el);
-    if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
-    if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
-    if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
+    if (timelineViewRef.current) roTimeline.observe(timelineViewRef.current);
+    if (timelineTopBarRef.current) roBar.observe(timelineTopBarRef.current);
+    if (timelineResizerRef.current)
+      roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
       roTimeline.disconnect();
@@ -1274,14 +1278,13 @@ const SequenceLabeler: React.FC<{
       <div
         ref={workAreaRef}
         className={styles.workArea}
-        style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
+        style={{
+          gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))`,
+        }}
       >
         {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
-          <div
-            ref={canvasWrapRef}
-            className={styles.canvasWrap}
-          >
+          <div ref={canvasWrapRef} className={styles.canvasWrap}>
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
@@ -1343,12 +1346,19 @@ const SequenceLabeler: React.FC<{
             onStartResize={(ev) => {
               ev.preventDefault();
               const startY = ev.clientY;
-              const startH = timelineWrapRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
+              const startH =
+                timelineViewRef.current?.getBoundingClientRect().height ??
+                timelineHeight ??
+                200;
               const workRect = workAreaRef.current?.getBoundingClientRect();
-              const toolbarH = timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+              const toolbarH =
+                timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
               const totalH = workRect?.height ?? 0;
               const minH = 80;
-              const maxH = Math.max(minH, Math.min((totalH - toolbarH) - 120, 600));
+              const maxH = Math.max(
+                minH,
+                Math.min(totalH - toolbarH - 120, 600),
+              );
               const onMove = (e: MouseEvent) => {
                 const dy = e.clientY - startY;
                 // Resizer is above the timeline: moving down should reduce height
@@ -1366,8 +1376,8 @@ const SequenceLabeler: React.FC<{
         </div>
 
         {/* Right panel */}
-          <SLRightPanel
-            labelSet={labelSet}
+        <SLRightPanel
+          labelSet={labelSet}
           setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
           availableSets={availableSets}
           setAvailableSets={setAvailableSets}
