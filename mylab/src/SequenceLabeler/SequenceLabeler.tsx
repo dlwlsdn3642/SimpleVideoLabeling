@@ -38,7 +38,9 @@ import { loadDirHandle, saveDirHandle } from "../utils/handles";
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
 type DirHandleWithPerm = FileSystemDirectoryHandle & {
-  queryPermission?: (opts: { mode: "read" | "readwrite" }) => Promise<PermissionState>;
+  queryPermission?: (opts: {
+    mode: "read" | "readwrite";
+  }) => Promise<PermissionState>;
 };
 
 const DEFAULT_COLORS = [
@@ -80,12 +82,24 @@ const SequenceLabeler: React.FC<{
   const [files, setFiles] = useState<string[]>([]);
   const [localFiles, setLocalFiles] = useState<LocalFile[] | null>(null);
   const [frame, setFrame] = useState(0);
+  const [displayFrame, setDisplayFrame] = useState(0);
   const [scale, setScale] = useState(1);
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
+  const frameRef = useRef(frame);
+  const displayRef = useRef(displayFrame);
+  const [isResizing, setIsResizing] = useState(false);
+  const [fpsLimit, setFpsLimit] = useState(60);
+
+  useEffect(() => {
+    frameRef.current = frame;
+  }, [frame]);
+  useEffect(() => {
+    displayRef.current = displayFrame;
+  }, [displayFrame]);
 
   // labels
   const [labelSet, setLabelSet] = useState<LabelSet>({
@@ -199,6 +213,14 @@ const SequenceLabeler: React.FC<{
     redo: "Ctrl+y",
   };
   const storagePrefix = taskId ?? indexUrl;
+  useEffect(() => {
+    const raw = localStorage.getItem(`${storagePrefix}::fps_limit`);
+    const v = parseInt(raw ?? "", 10);
+    if ([15, 30, 45, 60].includes(v)) setFpsLimit(v);
+  }, [storagePrefix]);
+  useEffect(() => {
+    localStorage.setItem(`${storagePrefix}::fps_limit`, String(fpsLimit));
+  }, [fpsLimit, storagePrefix]);
   const [keymap, setKeymap] = useState<KeyMap>(() => {
     const raw = localStorage.getItem(`${storagePrefix}::keymap_v2`);
     return raw ? { ...DEFAULT_KEYMAP, ...JSON.parse(raw) } : DEFAULT_KEYMAP;
@@ -293,7 +315,9 @@ const SequenceLabeler: React.FC<{
         const handle = await loadDirHandle(storagePrefix);
         if (
           handle &&
-          (await (handle as DirHandleWithPerm).queryPermission?.({ mode: "read" })) === "granted"
+          (await (handle as DirHandleWithPerm).queryPermission?.({
+            mode: "read",
+          })) === "granted"
         ) {
           await loadFromDir(handle);
           setNeedsImport(false);
@@ -351,14 +375,21 @@ const SequenceLabeler: React.FC<{
         const v = parseInt(raw, 10);
         if (!Number.isNaN(v)) setTimelineHeight(v);
       }
-    } catch {/* ignore */}
+    } catch {
+      /* ignore */
+    }
   }, [storagePrefix]);
   useEffect(() => {
     if (timelineHeight == null) return;
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(`${storagePrefix}::timeline_h`, String(timelineHeight));
-      } catch {/* ignore */}
+        localStorage.setItem(
+          `${storagePrefix}::timeline_h`,
+          String(timelineHeight),
+        );
+      } catch {
+        /* ignore */
+      }
     }, 200);
     return () => clearTimeout(t);
   }, [timelineHeight, storagePrefix]);
@@ -493,17 +524,39 @@ const SequenceLabeler: React.FC<{
     [meta, files, framesBaseUrl, localFiles],
   );
 
+  // sync display frame with input frame at limited fps
+  useEffect(() => {
+    let id: number;
+    if (isResizing) {
+      const loop = () => {
+        if (displayRef.current !== frameRef.current) {
+          setDisplayFrame(frameRef.current);
+        }
+        id = requestAnimationFrame(loop);
+      };
+      id = requestAnimationFrame(loop);
+      return () => cancelAnimationFrame(id);
+    }
+    const interval = 1000 / fpsLimit;
+    id = window.setInterval(() => {
+      if (displayRef.current !== frameRef.current) {
+        setDisplayFrame(frameRef.current);
+      }
+    }, interval);
+    return () => clearInterval(id);
+  }, [fpsLimit, isResizing]);
+
   // prefetch around current frame (non-blocking, nearest-first)
   useEffect(() => {
     const total = localFiles ? localFiles.length : files.length;
     if (!meta || total <= 0) return;
     for (let d = 1; d <= prefetchRadius; d++) {
-      const before = frame - d;
-      const after = frame + d;
+      const before = displayFrame - d;
+      const after = displayFrame + d;
       if (before >= 0 && !cacheRef.current.has(before)) void getImage(before);
       if (after < total && !cacheRef.current.has(after)) void getImage(after);
     }
-  }, [frame, meta, files.length, localFiles, getImage, prefetchRadius]);
+  }, [displayFrame, meta, files.length, localFiles, getImage, prefetchRadius]);
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
   useEffect(() => {
@@ -524,10 +577,10 @@ const SequenceLabeler: React.FC<{
       const ctx = c.getContext("2d");
       if (!ctx) return;
 
-      const bmpInCache = cacheRef.current.has(frame);
+      const bmpInCache = cacheRef.current.has(displayFrame);
       const bmp = bmpInCache
-        ? cacheRef.current.get(frame)
-        : await getImage(frame);
+        ? cacheRef.current.get(displayFrame)
+        : await getImage(displayFrame);
       if (cancelled || !bmp) return;
 
       ctx.imageSmoothingEnabled = false;
@@ -573,9 +626,9 @@ const SequenceLabeler: React.FC<{
         for (const t of tracks) {
           if (t.hidden) continue;
           const color = labelSet.colors[t.class_id] || "#66d9ef";
-          const prev = rectAtFrame(t, frame - 1, interpolate);
+          const prev = rectAtFrame(t, displayFrame - 1, interpolate);
           if (prev) drawRect(prev, color, ghostAlpha, true);
-          const next = rectAtFrame(t, frame + 1, interpolate);
+          const next = rectAtFrame(t, displayFrame + 1, interpolate);
           if (next) drawRect(next, color, ghostAlpha, true);
         }
       }
@@ -583,7 +636,7 @@ const SequenceLabeler: React.FC<{
       // current rects
       for (const t of tracks) {
         if (t.hidden) continue;
-        const r = rectAtFrame(t, frame, interpolate);
+        const r = rectAtFrame(t, displayFrame, interpolate);
         if (!r) continue;
         const color = labelSet.colors[t.class_id] || "#66d9ef";
         const isSel = selectedIds.has(t.track_id);
@@ -630,7 +683,7 @@ const SequenceLabeler: React.FC<{
       cancelled = true;
     };
   }, [
-    frame,
+    displayFrame,
     tracks,
     selectedIds,
     labelSet.classes,
@@ -648,16 +701,16 @@ const SequenceLabeler: React.FC<{
   // Track Shift pressed state for cursor affordance
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftHeld(true);
+      if (e.key === "Shift") setShiftHeld(true);
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftHeld(false);
+      if (e.key === "Shift") setShiftHeld(false);
     };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
     };
   }, []);
   useEffect(() => {
@@ -1010,7 +1063,8 @@ const SequenceLabeler: React.FC<{
           const kfs = [...tt.keyframes];
           const prevIdx = findKFIndexAtOrBefore(kfs, f);
           if (prevIdx >= 0 && kfs[prevIdx].absent) {
-            if (kfs[prevIdx].frame === f) kfs[prevIdx] = { ...kfs[prevIdx], absent: false };
+            if (kfs[prevIdx].frame === f)
+              kfs[prevIdx] = { ...kfs[prevIdx], absent: false };
             else kfs.splice(prevIdx, 1);
           }
           const updated = { ...tt, keyframes: kfs };
@@ -1228,10 +1282,12 @@ const SequenceLabeler: React.FC<{
         frame={frame}
         totalFrames={totalFrames}
         playing={playing}
+        fpsLimit={fpsLimit}
         onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
         onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
         onSeek={(val) => setFrame(val)}
         onTogglePlay={() => setPlaying((p) => !p)}
+        onChangeFps={setFpsLimit}
         onTogglePresence={togglePresenceAtCurrent}
         canTogglePresence={!!selectedTracks.length}
         onImportFolder={importFolder}
@@ -1252,10 +1308,7 @@ const SequenceLabeler: React.FC<{
         {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
           {/* Viewport */}
-          <div
-            ref={viewportWrapRef}
-            className={styles.viewportWrap}
-          >
+          <div ref={viewportWrapRef} className={styles.viewportWrap}>
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
             ) : (
@@ -1264,13 +1317,17 @@ const SequenceLabeler: React.FC<{
                 data-testid="Viewport"
                 className={styles.viewport}
                 style={{
-                  aspectRatio: meta ? `${meta.width} / ${meta.height}` : undefined,
+                  aspectRatio: meta
+                    ? `${meta.width} / ${meta.height}`
+                    : undefined,
                   cursor:
-                    dragHandle !== 'none'
+                    dragHandle !== "none"
                       ? handleCursor(dragHandle, true)
-                      : hoverHandle !== 'none'
+                      : hoverHandle !== "none"
                         ? handleCursor(hoverHandle, false)
-                        : (shiftHeld ? 'crosshair' : 'default'),
+                        : shiftHeld
+                          ? "crosshair"
+                          : "default",
                 }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
@@ -1285,8 +1342,12 @@ const SequenceLabeler: React.FC<{
             timelineHeight={timelineHeight}
             frame={frame}
             totalFrames={totalFrames}
-            onPrevFrame={() => setFrame((f) => clamp(f - 1, 0, totalFrames - 1))}
-            onNextFrame={() => setFrame((f) => clamp(f + 1, 0, totalFrames - 1))}
+            onPrevFrame={() =>
+              setFrame((f) => clamp(f - 1, 0, totalFrames - 1))
+            }
+            onNextFrame={() =>
+              setFrame((f) => clamp(f + 1, 0, totalFrames - 1))
+            }
             onAddKeyframeAtCurrent={addKeyframeAtCurrent}
             oneSelected={!!oneSelected}
             timelineWidth={timelineWidth}
@@ -1295,10 +1356,11 @@ const SequenceLabeler: React.FC<{
             labelSet={labelSet}
             selectedIds={selectedIds}
             onSelectTrack={(tid, additive) => {
-              setSelectedIds(prev => {
+              setSelectedIds((prev) => {
                 if (additive) {
                   const n = new Set(prev);
-                  if (n.has(tid)) n.delete(tid); else n.add(tid);
+                  if (n.has(tid)) n.delete(tid);
+                  else n.add(tid);
                   return n;
                 }
                 return new Set([tid]);
@@ -1310,19 +1372,29 @@ const SequenceLabeler: React.FC<{
             rowHeight={16}
             onStartResize={(ev) => {
               ev.preventDefault();
+              setIsResizing(true);
               const startY = ev.clientY;
-              const startH = timelineViewRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
-              const workspaceRect = workspaceRef.current?.getBoundingClientRect();
-              const topBarH = timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
+              const startH =
+                timelineViewRef.current?.getBoundingClientRect().height ??
+                timelineHeight ??
+                200;
+              const workspaceRect =
+                workspaceRef.current?.getBoundingClientRect();
+              const topBarH =
+                timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
               const totalH = workspaceRect?.height ?? 0;
               const minH = 80;
-              const maxH = Math.max(minH, Math.min((totalH - topBarH) - 120, 600));
+              const maxH = Math.max(
+                minH,
+                Math.min(totalH - topBarH - 120, 600),
+              );
               const onMove = (e: MouseEvent) => {
                 const dy = e.clientY - startY;
                 // Resizer is above the timeline: moving down should reduce height
                 const next = Math.max(minH, Math.min(startH - dy, maxH));
                 resizeCurrHRef.current = next;
-                if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
+                if (resizeRafRef.current)
+                  cancelAnimationFrame(resizeRafRef.current);
                 resizeRafRef.current = requestAnimationFrame(() => {
                   if (timelineViewRef.current) {
                     timelineViewRef.current.style.height = `${next}px`;
@@ -1330,20 +1402,23 @@ const SequenceLabeler: React.FC<{
                 });
               };
               const onUp = () => {
-                window.removeEventListener('mousemove', onMove);
-                window.removeEventListener('mouseup', onUp);
-                if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
-                if (resizeCurrHRef.current != null) setTimelineHeight(resizeCurrHRef.current);
+                window.removeEventListener("mousemove", onMove);
+                window.removeEventListener("mouseup", onUp);
+                if (resizeRafRef.current)
+                  cancelAnimationFrame(resizeRafRef.current);
+                if (resizeCurrHRef.current != null)
+                  setTimelineHeight(resizeCurrHRef.current);
+                setIsResizing(false);
               };
-              window.addEventListener('mousemove', onMove);
-              window.addEventListener('mouseup', onUp);
+              window.addEventListener("mousemove", onMove);
+              window.addEventListener("mouseup", onUp);
             }}
           />
         </div>
 
         {/* RightPanel */}
-          <SLRightPanel
-            labelSet={labelSet}
+        <SLRightPanel
+          labelSet={labelSet}
           setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
           availableSets={availableSets}
           setAvailableSets={setAvailableSets}

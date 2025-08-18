@@ -9,10 +9,12 @@ type Props = {
   frame: number;
   totalFrames: number;
   playing: boolean;
+  fpsLimit: number;
   onPrevFrame: () => void;
   onNextFrame: () => void;
   onSeek: (value: number) => void;
   onTogglePlay: () => void;
+  onChangeFps: (fps: number) => void;
   onTogglePresence: () => void;
   canTogglePresence: boolean;
   onImportFolder: () => void;
@@ -28,10 +30,12 @@ const SLTopBar: React.FC<Props> = ({
   frame,
   totalFrames,
   playing,
+  fpsLimit,
   onPrevFrame,
   onNextFrame,
   onSeek,
   onTogglePlay,
+  onChangeFps,
   onTogglePresence,
   canTogglePresence,
   onImportFolder,
@@ -41,15 +45,19 @@ const SLTopBar: React.FC<Props> = ({
   onExportYOLO,
   onOpenShortcuts,
 }) => {
-  if (shouldInjectError('SLTopBar')) {
-    throw new Error('Injected error: SLTopBar');
+  if (shouldInjectError("SLTopBar")) {
+    throw new Error("Injected error: SLTopBar");
   }
   return (
     <div className={styles.topBar} data-testid="TopBar">
       {leftTopExtra ? (
-        <div style={{ marginRight: 8, display: "flex", alignItems: "center" }}>{leftTopExtra}</div>
+        <div style={{ marginRight: 8, display: "flex", alignItems: "center" }}>
+          {leftTopExtra}
+        </div>
       ) : null}
-      <button onClick={onPrevFrame} aria-label="Previous frame">←</button>
+      <button onClick={onPrevFrame} aria-label="Previous frame">
+        ←
+      </button>
       <input
         type="range"
         min={0}
@@ -58,15 +66,38 @@ const SLTopBar: React.FC<Props> = ({
         onChange={(e) => onSeek(parseInt(e.target.value))}
         className={styles.seekRange}
       />
-      <button onClick={onNextFrame} aria-label="Next frame">→</button>
+      <button onClick={onNextFrame} aria-label="Next frame">
+        →
+      </button>
       <button onClick={onTogglePlay} aria-label={playing ? "Pause" : "Play"}>
         {playing ? "Pause" : "Play"}
       </button>
-      <span style={{ opacity: 0.85 }}>Frame {frame + 1}/{totalFrames || "—"}</span>
+      <span style={{ opacity: 0.85 }}>
+        Frame {frame + 1}/{totalFrames || "—"}
+      </span>
 
-      <button onClick={onTogglePresence} disabled={!canTogglePresence}>Toggle Presence (N)</button>
+      <label style={{ marginLeft: 8, display: "flex", alignItems: "center" }}>
+        FPS:
+        <select
+          value={fpsLimit}
+          onChange={(e) => onChangeFps(parseInt(e.target.value, 10))}
+          style={{ marginLeft: 4 }}
+        >
+          {[15, 30, 45, 60].map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </label>
 
-      <button style={{ marginLeft: "auto" }} onClick={onImportFolder}>Import Folder</button>
+      <button onClick={onTogglePresence} disabled={!canTogglePresence}>
+        Toggle Presence (N)
+      </button>
+
+      <button style={{ marginLeft: "auto" }} onClick={onImportFolder}>
+        Import Folder
+      </button>
       {needsImport && (
         <span style={{ color: "#f66" }}>Load failed. Use Import Folder.</span>
       )}
