@@ -7,7 +7,7 @@ import { shouldInjectError } from "../utils/debug";
 /* Timeline */
 
 type Props = {
-  timelineToolbarRef: RefObject<HTMLDivElement | null>;
+  timelineTopBarRef: RefObject<HTMLDivElement | null>;
   timelineViewRef: RefObject<HTMLDivElement | null>;
   timelineResizerRef?: RefObject<HTMLDivElement | null>;
   timelineHeight?: number | null;
@@ -31,7 +31,7 @@ type Props = {
 };
 
 const SLTimelineSection: FC<Props> = ({
-  timelineToolbarRef,
+  timelineTopBarRef,
   timelineViewRef,
   timelineResizerRef,
   timelineHeight,
@@ -58,7 +58,7 @@ const SLTimelineSection: FC<Props> = ({
   }
   return (
     <div data-testid="Timeline">
-      <div ref={timelineToolbarRef} className={styles.timelineToolbar} data-testid="TimelineToolbar">
+      <div ref={timelineTopBarRef} className={styles.timelineTopBar} data-testid="TimelineTopBar">
         <button title="Prev frame" onClick={onPrevFrame} aria-label="Previous frame">←</button>
         <button title="Next frame" onClick={onNextFrame} aria-label="Next frame">→</button>
         <span style={{ opacity: 0.85 }}>

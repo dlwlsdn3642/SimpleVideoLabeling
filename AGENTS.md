@@ -22,7 +22,7 @@
     - Directory import (`loadFromDir`) (lines 213-255)
     - Index loading effect (lines 283-339)
     - Autosave effect (lines 383-400)
-  - `src/SequenceLabeler/SLTopBar.tsx` (lines 24-79) – Toolbar and frame controls.
+  - `src/SequenceLabeler/SLTopBar.tsx` (lines 24-79) – TopBar and frame controls.
   - `src/SequenceLabeler/SLTimelineSection.tsx` (lines 31-105) – Timeline and keyframe section.
   - `src/SequenceLabeler/SLRightPanel.tsx` (lines 27-224) – Right-side panel for label sets and tracks.
 
@@ -46,24 +46,28 @@
 - `Docker/transt_server.py` (lines 1-108) – TransT tracking API server.
 - `Docker/transt_wrapper.py` (lines 1-150) – Transt tracking wrapper and session service.
 
-### UI Layout NameMap
+### UI Layout Hierarchy
 
-| Layout Name      | File Path                                          | Identifier                               | Lines       |
-|------------------|-----------------------------------------------------|-------------------------------------------|-------------|
-| Workspace        | `mylab/src/SequenceLabeler/SequenceLabeler.tsx`    | `<div className={styles.workspace}>`      | 1252-1258   |
-| Viewport         | `mylab/src/SequenceLabeler/SequenceLabeler.tsx`    | `<canvas className={styles.viewport}>`    | 1261-1285   |
-| Toolbar          | `mylab/src/SequenceLabeler/SLTopBar.tsx`           | `<div className={styles.toolbar}>`        | 48-77       |
-| Inspector        | `mylab/src/SequenceLabeler/SLRightPanel.tsx`       | `<div className={styles.inspector}>`      | 52-120      |
-| Timeline         | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`  | `<div data-testid="Timeline">`           | 60-105      |
-| TimelineToolbar  | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`  | `<div className={styles.timelineToolbar}>`| 61-76       |
-| TimelineResizer  | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`  | `<div className={styles.timelineResizer}>`| 77-82       |
-| TimelineView     | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`  | `<div className={styles.timelineView}>`   | 84-104      |
-| ProjectPanel     | `mylab/src/App.tsx`                                | `<div className={appStyles.sidebar}>`     | 104-109     |
+- **Workspace** (`SequenceLabeler.tsx`)
+  - Includes **TopBar**, **Viewport**, **RightPanel**, and **Timeline**.
+    - **Timeline** contains **TimelineTopBar**, **TimelineResizer**, and **TimelineView**.
+
+| Layout Name     | Component Path                                      | Identifier                                | Lines      | CSS (file:lines)                                   |
+|-----------------|-----------------------------------------------------|-------------------------------------------|------------|----------------------------------------------------|
+| Workspace       | `mylab/src/SequenceLabeler/SequenceLabeler.tsx`     | `<div className={styles.workspace}>`      | 1252-1258  | `SequenceLabeler.module.css` `.workspace` (24-29)  |
+| Viewport        | `mylab/src/SequenceLabeler/SequenceLabeler.tsx`     | `<canvas className={styles.viewport}>`    | 1262-1285  | `SequenceLabeler.module.css` `.viewport` (48-56)   |
+| TopBar          | `mylab/src/SequenceLabeler/SLTopBar.tsx`            | `<div className={styles.topBar}>`         | 48-77      | `SequenceLabeler.module.css` `.topBar` (10-22)     |
+| RightPanel      | `mylab/src/SequenceLabeler/SLRightPanel.tsx`        | `<div className={styles.rightPanel}>`     | 52-224     | `SequenceLabeler.module.css` `.rightPanel` (95-104)|
+| Timeline        | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`   | `<div data-testid="Timeline">`           | 60-105     | —                                                  |
+| TimelineTopBar  | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`   | `<div className={styles.timelineTopBar}>` | 61-76      | `SequenceLabeler.module.css` `.timelineTopBar` (58-65) |
+| TimelineResizer | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`   | `<div className={styles.timelineResizer}>`| 77-82      | `SequenceLabeler.module.css` `.timelineResizer` (67-76) |
+| TimelineView    | `mylab/src/SequenceLabeler/SLTimelineSection.tsx`   | `<div className={styles.timelineView}>`   | 84-104     | `SequenceLabeler.module.css` `.timelineView` (79-88) |
+| ProjectPanel    | `mylab/src/App.tsx`                                 | `<div className={appStyles.sidebar}>`     | 104-109    | `App.module.css` `.sidebar` (8-16)                 |
 
 ### Components Index & Edit Roadmap
 
-- `SequenceLabeler/SequenceLabeler.tsx` – Hosts Workspace, Viewport, and embeds Timeline & Inspector (lines 1230-1303).
-- `SequenceLabeler/SLTopBar.tsx` – Toolbar with playback and file controls (lines 1-77).
-- `SequenceLabeler/SLRightPanel.tsx` – Inspector for label sets and tracks (lines 1-120).
-- `SequenceLabeler/SLTimelineSection.tsx` – Timeline with toolbar, resizer, and view (lines 1-105).
+- `SequenceLabeler/SequenceLabeler.tsx` – Hosts Workspace with TopBar, Viewport, Timeline, and RightPanel (lines 1230-1360).
+- `SequenceLabeler/SLTopBar.tsx` – TopBar with playback and file controls (lines 1-77).
+- `SequenceLabeler/SLRightPanel.tsx` – RightPanel for label sets and tracks (lines 1-224).
+- `SequenceLabeler/SLTimelineSection.tsx` – Timeline with TimelineTopBar, resizer, and view (lines 1-105).
 - `App.tsx` – ProjectPanel managing projects and tasks (lines 102-120).

@@ -7,7 +7,7 @@
   font-family: Inter, ui-monospace, Menlo, Consolas;
 }
 
-.toolbar {
+.topBar {
   display: flex;
   gap: var(--space-3);
   align-items: center;
@@ -55,7 +55,7 @@
   image-rendering: pixelated;
 }
 
-.timelineToolbar {
+.timelineTopBar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -92,7 +92,7 @@
   min-width: var(--seek-min);
 }
 
-.inspector {
+.rightPanel {
   border-left: 1px solid var(--border);
   padding: var(--space-2);
   overflow: auto;

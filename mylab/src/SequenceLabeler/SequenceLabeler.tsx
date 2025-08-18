@@ -35,7 +35,7 @@ import {
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle } from "../utils/handles";
 
-/* Workspace, Viewport, Timeline, Inspector */
+/* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
 const DEFAULT_COLORS = [
   "#e6194b",
@@ -206,7 +206,7 @@ const SequenceLabeler: React.FC<{
 
   // layout refs for timeline area
   const timelineViewRef = useRef<HTMLDivElement | null>(null);
-  const timelineToolbarRef = useRef<HTMLDivElement | null>(null);
+  const timelineTopBarRef = useRef<HTMLDivElement | null>(null);
   const timelineResizerRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
   const [timelineHeight, setTimelineHeight] = useState<number | null>(null);
@@ -421,12 +421,12 @@ const SequenceLabeler: React.FC<{
       const rect = el.getBoundingClientRect();
       const timelineH =
         timelineViewRef.current?.getBoundingClientRect().height ?? 0;
-      const toolbarH =
-        timelineToolbarRef.current?.getBoundingClientRect().height ?? 0;
+      const topBarH =
+        timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
       const resizerH =
         timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
-      const availH = Math.max(0, rect.height - timelineH - toolbarH - resizerH);
+      const availH = Math.max(0, rect.height - timelineH - topBarH - resizerH);
       if (totalW <= 0) return;
       // Ensure canvas never pushes timeline out of view; if availH is 0, clamp scale using current value
       const safeAvailH = Math.max(0, availH);
@@ -449,16 +449,16 @@ const SequenceLabeler: React.FC<{
     update();
     const ro = new ResizeObserver(update);
     const roTimeline = new ResizeObserver(update);
-    const roToolbar = new ResizeObserver(update);
+    const roTopBar = new ResizeObserver(update);
     const roResizer = new ResizeObserver(update);
     ro.observe(el);
     if (timelineViewRef.current) roTimeline.observe(timelineViewRef.current);
-    if (timelineToolbarRef.current) roToolbar.observe(timelineToolbarRef.current);
+    if (timelineTopBarRef.current) roTopBar.observe(timelineTopBarRef.current);
     if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
       roTimeline.disconnect();
-      roToolbar.disconnect();
+      roTopBar.disconnect();
       roResizer.disconnect();
     };
   }, [meta, timelineHeight]);
@@ -1248,7 +1248,7 @@ const SequenceLabeler: React.FC<{
         onOpenShortcuts={() => setKeyUIOpen(true)}
       />
 
-      {/* Viewport + Inspector */}
+      {/* Viewport + RightPanel */}
       {/* Workspace */}
       <div
         ref={workspaceRef}
@@ -1286,7 +1286,7 @@ const SequenceLabeler: React.FC<{
             )}
           </div>
           <SLTimelineSection
-            timelineToolbarRef={timelineToolbarRef}
+            timelineTopBarRef={timelineTopBarRef}
             timelineViewRef={timelineViewRef}
             timelineResizerRef={timelineResizerRef}
             timelineHeight={timelineHeight}
@@ -1320,10 +1320,10 @@ const SequenceLabeler: React.FC<{
               const startY = ev.clientY;
               const startH = timelineViewRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
               const workspaceRect = workspaceRef.current?.getBoundingClientRect();
-              const toolbarH = timelineToolbarRef.current?.getBoundingClientRect().height ?? 0;
+              const topBarH = timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
               const totalH = workspaceRect?.height ?? 0;
               const minH = 80;
-              const maxH = Math.max(minH, Math.min((totalH - toolbarH) - 120, 600));
+              const maxH = Math.max(minH, Math.min((totalH - topBarH) - 120, 600));
               const onMove = (e: MouseEvent) => {
                 const dy = e.clientY - startY;
                 // Resizer is above the timeline: moving down should reduce height
@@ -1340,7 +1340,7 @@ const SequenceLabeler: React.FC<{
           />
         </div>
 
-        {/* Inspector */}
+        {/* RightPanel */}
           <SLRightPanel
             labelSet={labelSet}
           setLabelSet={(fn) => startTransition(() => setLabelSet(fn(labelSet)))}
