@@ -408,9 +408,13 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     if (!timelineViewRef.current) return;
     const el = timelineViewRef.current;
+    let prev = -1;
     const ro = new ResizeObserver((entries) => {
-      const cr = entries[0].contentRect;
-      setTimelineWidth(Math.max(300, cr.width - 24)); // padding 12*2
+      const next = Math.max(300, entries[0].contentRect.width - 24); // padding 12*2
+      if (next !== prev) {
+        prev = next;
+        setTimelineWidth(next);
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -420,15 +424,29 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     if (!meta || !viewportWrapRef.current) return;
     const el = viewportWrapRef.current;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const next = Math.min(rect.width / meta.width, rect.height / meta.height);
-      setScale(next);
+    let lastScale = -1;
+    let rafId: number | null = null;
+    let w = 0;
+    let h = 0;
+    const apply = () => {
+      rafId = null;
+      const next = Math.min(w / meta.width, h / meta.height);
+      if (next !== lastScale) {
+        lastScale = next;
+        setScale(next);
+      }
     };
-    update();
-    const ro = new ResizeObserver(update);
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0].contentRect;
+      w = cr.width;
+      h = cr.height;
+      if (rafId == null) rafId = requestAnimationFrame(apply);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (rafId != null) cancelAnimationFrame(rafId);
+    };
   }, [meta]);
 
   /** ===== Image loading ===== */
