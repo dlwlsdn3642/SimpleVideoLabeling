@@ -423,8 +423,8 @@ const SequenceLabeler: React.FC<{
 
   // sync canvas scale to its wrapper size
   useEffect(() => {
-    if (!meta || !workAreaRef.current) return;
-    const el = workAreaRef.current;
+    if (!meta || !workspaceRef.current) return;
+    const el = workspaceRef.current;
     const update = () => {
       const rect = el.getBoundingClientRect();
       const timelineH =
@@ -1272,15 +1272,15 @@ const SequenceLabeler: React.FC<{
       {/* Viewport + RightPanel */}
       {/* Workspace */}
       <div
-        ref={workAreaRef}
-        className={styles.workArea}
+        ref={workspaceRef}
+        className={styles.workspace}
         style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
       >
         {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
           <div
-            ref={canvasWrapRef}
-            className={styles.canvasWrap}
+            ref={viewportWrapRef}
+            className={styles.viewportWrap}
           >
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
@@ -1344,7 +1344,7 @@ const SequenceLabeler: React.FC<{
               ev.preventDefault();
               const startY = ev.clientY;
               const startH = timelineWrapRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
-              const workRect = workAreaRef.current?.getBoundingClientRect();
+              const workRect = workspaceRef.current?.getBoundingClientRect();
               const toolbarH = timelineBarRef.current?.getBoundingClientRect().height ?? 0;
               const totalH = workRect?.height ?? 0;
               const minH = 80;
