@@ -81,7 +81,6 @@ const SequenceLabeler: React.FC<{
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [sideWidth, setSideWidth] = useState(240);
-  const MIN_SIDE_WIDTH = 88;
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -423,14 +422,14 @@ const SequenceLabeler: React.FC<{
 
   // sync canvas scale to its wrapper size
   useEffect(() => {
-    if (!meta || !workAreaRef.current) return;
-    const el = workAreaRef.current;
+    if (!meta || !workspaceRef.current) return;
+    const el = workspaceRef.current;
     const update = () => {
       const rect = el.getBoundingClientRect();
       const timelineH =
-        timelineWrapRef.current?.getBoundingClientRect().height ?? 0;
+        timelineViewRef.current?.getBoundingClientRect().height ?? 0;
       const toolbarH =
-        timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+        timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
       const resizerH =
         timelineResizerRef.current?.getBoundingClientRect().height ?? 0;
       const totalW = rect.width;
@@ -461,8 +460,8 @@ const SequenceLabeler: React.FC<{
     const roBar = new ResizeObserver(update);
     const roResizer = new ResizeObserver(update);
     ro.observe(el);
-    if (timelineWrapRef.current) roTimeline.observe(timelineWrapRef.current);
-    if (timelineBarRef.current) roBar.observe(timelineBarRef.current);
+    if (timelineViewRef.current) roTimeline.observe(timelineViewRef.current);
+    if (timelineTopBarRef.current) roBar.observe(timelineTopBarRef.current);
     if (timelineResizerRef.current) roResizer.observe(timelineResizerRef.current);
     return () => {
       ro.disconnect();
@@ -1239,11 +1238,11 @@ const SequenceLabeler: React.FC<{
         }),
       );
       // Optional lightweight feedback
-      // eslint-disable-next-line no-alert
+       
       alert("Saved");
     } catch (err) {
       console.error(err);
-      // eslint-disable-next-line no-alert
+       
       alert("Save failed");
     }
   }, [storagePrefix, meta, labelSet, tracks, frame, interpolate, showGhosts]);
@@ -1272,15 +1271,15 @@ const SequenceLabeler: React.FC<{
       {/* Viewport + RightPanel */}
       {/* Workspace */}
       <div
-        ref={workAreaRef}
-        className={styles.workArea}
+        ref={workspaceRef}
+        className={styles.workspace}
         style={{ gridTemplateColumns: `1fr clamp(var(--right-min), ${sideWidth}px, var(--right-max))` }}
       >
         {/* Viewport + Timeline */}
         <div className={styles.canvasColumn}>
           <div
-            ref={canvasWrapRef}
-            className={styles.canvasWrap}
+            ref={viewportWrapRef}
+            className={styles.viewportWrap}
           >
             {!meta ? (
               <div style={{ padding: 20 }}>Loading index…</div>
@@ -1343,9 +1342,9 @@ const SequenceLabeler: React.FC<{
             onStartResize={(ev) => {
               ev.preventDefault();
               const startY = ev.clientY;
-              const startH = timelineWrapRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
-              const workRect = workAreaRef.current?.getBoundingClientRect();
-              const toolbarH = timelineBarRef.current?.getBoundingClientRect().height ?? 0;
+              const startH = timelineViewRef.current?.getBoundingClientRect().height ?? (timelineHeight ?? 200);
+              const workRect = workspaceRef.current?.getBoundingClientRect();
+              const toolbarH = timelineTopBarRef.current?.getBoundingClientRect().height ?? 0;
               const totalH = workRect?.height ?? 0;
               const minH = 80;
               const maxH = Math.max(minH, Math.min((totalH - toolbarH) - 120, 600));
