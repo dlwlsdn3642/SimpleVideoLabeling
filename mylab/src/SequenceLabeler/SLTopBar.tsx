@@ -21,6 +21,8 @@ type Props = {
   onExportJSON: () => void;
   onExportYOLO: () => void;
   onOpenShortcuts: () => void;
+  fps: number;
+  onChangeFPS: (fps: number) => void;
 };
 
 const SLTopBar: React.FC<Props> = ({
@@ -40,6 +42,8 @@ const SLTopBar: React.FC<Props> = ({
   onExportJSON,
   onExportYOLO,
   onOpenShortcuts,
+  fps,
+  onChangeFPS,
 }) => {
   if (shouldInjectError('SLTopBar')) {
     throw new Error('Injected error: SLTopBar');
@@ -63,6 +67,20 @@ const SLTopBar: React.FC<Props> = ({
         {playing ? "Pause" : "Play"}
       </button>
       <span style={{ opacity: 0.85 }}>Frame {frame + 1}/{totalFrames || "—"}</span>
+
+      <label style={{ marginLeft: 12 }}>
+        FPS
+        <select
+          aria-label="Target FPS"
+          value={fps}
+          onChange={(e) => onChangeFPS(parseInt(e.target.value, 10))}
+          style={{ marginLeft: 6 }}
+        >
+          <option value={30}>30</option>
+          <option value={45}>45</option>
+          <option value={60}>60</option>
+        </select>
+      </label>
 
       <button onClick={onTogglePresence} disabled={!canTogglePresence}>Toggle Presence (N)</button>
 

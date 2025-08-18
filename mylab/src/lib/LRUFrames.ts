@@ -13,9 +13,10 @@ export default class LRUFrames {
     this.map.set(k, v);
     while (this.map.size > this.max) {
       const fk = this.map.keys().next().value as number;
-      this.map.get(fk)?.close?.();
+      // Do not forcibly close evicted bitmaps; allow GC to reclaim them.
       this.map.delete(fk);
     }
   }
   clear() { for (const [, v] of this.map) v.close?.(); this.map.clear(); }
+  delete(k: number) { this.map.delete(k); }
 }
