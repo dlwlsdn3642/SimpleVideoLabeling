@@ -4,6 +4,8 @@ import type { LabelSet, Track } from "../types";
 import { TrackPanel } from "../components";
 import { shouldInjectError } from "../utils/debug";
 
+/* Inspector */
+
 type Props = {
   labelSet: LabelSet;
   setLabelSet: (updater: (s: LabelSet) => LabelSet) => void;
@@ -47,7 +49,7 @@ const SLRightPanel: React.FC<Props> = ({
     throw new Error('Injected error: SLRightPanel');
   }
   return (
-    <div className={styles.rightPanel}>
+    <div className={styles.inspector} data-testid="Inspector">
       {/* View options */}
       <div className={styles.viewOptions}>
         <label className={styles.inlineLabel}>
