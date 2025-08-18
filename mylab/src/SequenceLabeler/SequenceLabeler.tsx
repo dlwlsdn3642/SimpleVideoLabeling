@@ -83,9 +83,23 @@ const SequenceLabeler: React.FC<{
   const [frame, setFrame] = useState(0);
   const [scale, setScale] = useState(1);
   const viewportRef = useRef<HTMLCanvasElement | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const offscreenTransferredRef = useRef(false);
+  const [workerActive, setWorkerActive] = useState(false);
+  const canUseOffscreen = useMemo(() => {
+    try {
+      return (
+        typeof window !== 'undefined' &&
+        typeof Worker !== 'undefined' &&
+        // @ts-ignore
+        !!(HTMLCanvasElement as any)?.prototype?.transferControlToOffscreen
+      );
+    } catch {
+      return false;
+    }
+  }, []);
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const [sideWidth, setSideWidth] = useState(240);
   const cacheRef = useRef(new LRUFrames(Math.max(96, prefetchRadius * 10)));
   const [playing, setPlaying] = useState(false);
   // Remember last successfully drawn bitmap to avoid blanks
@@ -118,6 +132,90 @@ const SequenceLabeler: React.FC<{
       localStorage.setItem(`${storagePrefix}::target_fps`, String(targetFPS));
     } catch {/* ignore */}
   }, [targetFPS, storagePrefix]);
+
+  // Initialize worker renderer if supported
+  useEffect(() => {
+    if (!canUseOffscreen) return;
+    if (!meta) return; // need dimensions
+    const el = viewportRef.current;
+    if (!el) return;
+    if (workerRef.current) return; // already initialized
+    try {
+      // Prepare OffscreenCanvas and worker
+      // @ts-ignore - transferControlToOffscreen exists when supported
+      const offscreen: OffscreenCanvas = el.transferControlToOffscreen();
+      offscreenTransferredRef.current = true;
+      const worker = new Worker(new URL('../workers/frameWorker.ts', import.meta.url), { type: 'module' });
+      workerRef.current = worker;
+      setWorkerActive(true);
+      const W = Math.round(meta.width * scale);
+      const H = Math.round(meta.height * scale);
+      worker.postMessage({ type: 'init', canvas: offscreen, meta, scale, fps: targetFPS, width: W, height: H }, [offscreen as unknown as Transferable]);
+      // Set source
+      if (localFiles) {
+        worker.postMessage({ type: 'setLocalSource', count: localFiles.length });
+        // Handle blob requests from worker
+        worker.onmessage = async (e: MessageEvent) => {
+          const data: any = e.data;
+          if (data?.type === 'needBlob') {
+            try {
+              const idx = data.index as number;
+              const file = await localFiles[idx].handle.getFile();
+              worker.postMessage({ type: 'provideBlob', index: idx, blob: file });
+            } catch {
+              worker.postMessage({ type: 'provideBlob', index: data.index, blob: null });
+            }
+          }
+        };
+      } else {
+        worker.postMessage({ type: 'setRemoteSource', baseUrl: framesBaseUrl, files });
+      }
+    } catch (err) {
+      console.warn('Failed to init Offscreen worker, falling back to main thread', err);
+      setWorkerActive(false);
+    }
+  }, [canUseOffscreen, meta, scale, targetFPS, framesBaseUrl, files, localFiles]);
+
+  // Sync worker with dynamic state
+  useEffect(() => {
+    if (!workerActive || !workerRef.current) return;
+    const worker = workerRef.current;
+    worker.postMessage({ type: 'setFPS', fps: targetFPS });
+  }, [workerActive, targetFPS]);
+  useEffect(() => {
+    if (!workerActive || !workerRef.current || !meta) return;
+    const worker = workerRef.current;
+    worker.postMessage({ type: 'setMeta', meta });
+  }, [workerActive, meta]);
+  useEffect(() => {
+    if (!workerActive || !workerRef.current || !meta) return;
+    const worker = workerRef.current;
+    const W = Math.round(meta.width * scale);
+    const H = Math.round(meta.height * scale);
+    worker.postMessage({ type: 'setScale', scale });
+    worker.postMessage({ type: 'resize', width: W, height: H });
+  }, [workerActive, scale, meta]);
+  useEffect(() => {
+    if (!workerActive || !workerRef.current) return;
+    const worker = workerRef.current;
+    worker.postMessage({ type: 'setFrame', frame });
+  }, [workerActive, frame]);
+
+  // Keep worker source up to date when switching between remote and local
+  useEffect(() => {
+    if (!workerActive || !workerRef.current) return;
+    const worker = workerRef.current;
+    if (localFiles) worker.postMessage({ type: 'setLocalSource', count: localFiles.length });
+    else worker.postMessage({ type: 'setRemoteSource', baseUrl: framesBaseUrl, files });
+  }, [workerActive, localFiles, framesBaseUrl, files]);
+
+  // Cleanup worker on unmount
+  useEffect(() => {
+    return () => {
+      try { workerRef.current?.terminate(); } catch {}
+      workerRef.current = null;
+    };
+  }, []);
 
   // labels
   const [labelSet, setLabelSet] = useState<LabelSet>({
@@ -172,6 +270,21 @@ const SequenceLabeler: React.FC<{
     [tracks, selectedIds],
   );
   const oneSelected = selectedTracks[0] ?? null;
+
+  // Sync dynamic overlay/draw inputs to worker
+  useEffect(() => {
+    if (!workerActive || !workerRef.current) return;
+    const worker = workerRef.current;
+    worker.postMessage({
+      type: 'updateState',
+      tracks,
+      selectedIds: Array.from(selectedIds),
+      labelSet,
+      interpolate,
+      showGhosts,
+      ghostAlpha,
+    });
+  }, [workerActive, tracks, selectedIds, labelSet, interpolate, showGhosts, ghostAlpha]);
 
   // editing
   const [dragHandle, setDragHandle] = useState<Handle>("none");
@@ -486,6 +599,7 @@ const SequenceLabeler: React.FC<{
   const inFlightRef = useRef(new Map<number, Promise<ImageBitmap | null>>());
   const getImage = useCallback(
     async (idx: number, hintOverride?: number): Promise<ImageBitmap | null> => {
+      if (workerActive) return null; // handled by worker path
       if (!meta) return null;
       const total = localFiles ? localFiles.length : files.length;
       if (idx < 0 || idx >= total) return null;
@@ -541,6 +655,7 @@ const SequenceLabeler: React.FC<{
 
   // Prefetch around last displayed frame (strictly gated by decode cadence)
   useEffect(() => {
+    if (workerActive) return; // worker handles prefetch
     const total = localFiles ? localFiles.length : files.length;
     if (!meta || total <= 0) return;
     const base = lastDrawnRef.current.frame >= 0 ? lastDrawnRef.current.frame : frame;
@@ -567,11 +682,12 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     const c = viewportRef.current;
     if (!c || !meta) return;
+    if (workerActive || offscreenTransferredRef.current) return; // Offscreen worker owns canvas size
     const W = Math.round(meta.width * scale);
     const H = Math.round(meta.height * scale);
     if (c.width !== W) c.width = W;
     if (c.height !== H) c.height = H;
-  }, [meta, scale]);
+  }, [meta, scale, workerActive]);
 
   /** ===== Drawing (persistent RAF loop, ~60 FPS) ===== */
   const stateRef = useRef({
@@ -599,6 +715,7 @@ const SequenceLabeler: React.FC<{
   useEffect(() => { stateRef.current.draftRect = draftRect; }, [draftRect]);
 
   useEffect(() => {
+    if (workerActive) return; // worker handles drawing loop
     const tick = async (t: number) => {
       const last = lastTickRef.current;
       const minInterval = 1000 / targetFPS;
@@ -744,7 +861,7 @@ const SequenceLabeler: React.FC<{
       if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     };
-  }, [targetFPS, getImage, files.length, localFiles]);
+  }, [workerActive, targetFPS, getImage, files.length, localFiles]);
 
   /** ===== Keyboard ===== */
   // Track Shift pressed state for cursor affordance
