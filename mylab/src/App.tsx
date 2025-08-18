@@ -101,8 +101,10 @@ export default function App() {
 
   return (
     <div className={appStyles.appRoot}>
+        {/* ProjectPanel */}
         <div
           className={appStyles.sidebar}
+          data-testid="ProjectPanel"
           style={{ width: panelOpen ? "clamp(220px, 22vw, 340px)" : 0, borderRight: panelOpen ? undefined : "none", padding: panelOpen ? 8 : 0 }}
         >
         {panelOpen && (
