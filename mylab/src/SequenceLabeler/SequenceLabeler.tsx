@@ -214,6 +214,8 @@ const SequenceLabeler: React.FC<{
   const [timelineWidth, setTimelineWidth] = useState<number>(800);
   const [timelineHeight, setTimelineHeight] = useState<number | null>(null);
   const [needsImport, setNeedsImport] = useState(false);
+  const resizeRafRef = useRef<number | null>(null);
+  const resizeCurrHRef = useRef<number | null>(null);
 
   const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
     const entries: LocalFile[] = [];
@@ -466,6 +468,8 @@ const SequenceLabeler: React.FC<{
   }, [meta, timelineHeight]);
 
   /** ===== Image loading ===== */
+  // Deduplicate in-flight image loads to improve fast seeking responsiveness
+  const inFlightRef = useRef(new Map<number, Promise<ImageBitmap | null>>());
   const getImage = useCallback(
     async (idx: number): Promise<ImageBitmap | null> => {
       if (!meta) return null;
@@ -475,42 +479,47 @@ const SequenceLabeler: React.FC<{
       const cached = cacheRef.current.get(idx);
       if (cached) return cached;
 
-      try {
-        if (localFiles) {
-          const file = await localFiles[idx].handle.getFile();
-          const bmp = await createImageBitmap(file);
-          cacheRef.current.set(idx, bmp);
-          return bmp;
-        } else {
-          const url = `${framesBaseUrl}/${files[idx]}`;
-          const res = await fetch(url, { cache: "force-cache" });
-          if (!res.ok) throw new Error(`image fetch ${res.status}`);
-          const blob = await res.blob();
-          const bmp = await createImageBitmap(blob);
-          cacheRef.current.set(idx, bmp);
-          return bmp;
+      const existing = inFlightRef.current.get(idx);
+      if (existing) return existing;
+
+      const p = (async () => {
+        try {
+          if (localFiles) {
+            const file = await localFiles[idx].handle.getFile();
+            const bmp = await createImageBitmap(file);
+            cacheRef.current.set(idx, bmp);
+            return bmp;
+          } else {
+            const url = `${framesBaseUrl}/${files[idx]}`;
+            const res = await fetch(url, { cache: "force-cache" });
+            if (!res.ok) throw new Error(`image fetch ${res.status}`);
+            const blob = await res.blob();
+            const bmp = await createImageBitmap(blob);
+            cacheRef.current.set(idx, bmp);
+            return bmp;
+          }
+        } catch {
+          return null;
+        } finally {
+          inFlightRef.current.delete(idx);
         }
-      } catch {
-        return null;
-      }
+      })();
+      inFlightRef.current.set(idx, p);
+      return p;
     },
     [meta, files, framesBaseUrl, localFiles],
   );
 
-  // prefetch around current frame
+  // prefetch around current frame (non-blocking, nearest-first)
   useEffect(() => {
-    (async () => {
-      const total = localFiles ? localFiles.length : files.length;
-      if (!meta || total <= 0) return;
-      const tasks: Promise<ImageBitmap | null>[] = [];
-      for (let d = -prefetchRadius; d <= prefetchRadius; d++) {
-        const i = frame + d;
-        if (i < 0 || i >= total) continue;
-        if (cacheRef.current.has(i)) continue;
-        tasks.push(getImage(i).catch(() => null));
-      }
-      await Promise.allSettled(tasks);
-    })();
+    const total = localFiles ? localFiles.length : files.length;
+    if (!meta || total <= 0) return;
+    for (let d = 1; d <= prefetchRadius; d++) {
+      const before = frame - d;
+      const after = frame + d;
+      if (before >= 0 && !cacheRef.current.has(before)) void getImage(before);
+      if (after < total && !cacheRef.current.has(after)) void getImage(after);
+    }
   }, [frame, meta, files.length, localFiles, getImage, prefetchRadius]);
 
   /** ===== Canvas size: update only when meta/scale changes (prevents flicker) ===== */
@@ -1330,11 +1339,19 @@ const SequenceLabeler: React.FC<{
                 const dy = e.clientY - startY;
                 // Resizer is above the timeline: moving down should reduce height
                 const next = Math.max(minH, Math.min(startH - dy, maxH));
-                setTimelineHeight(next);
+                resizeCurrHRef.current = next;
+                if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
+                resizeRafRef.current = requestAnimationFrame(() => {
+                  if (timelineViewRef.current) {
+                    timelineViewRef.current.style.height = `${next}px`;
+                  }
+                });
               };
               const onUp = () => {
                 window.removeEventListener('mousemove', onMove);
                 window.removeEventListener('mouseup', onUp);
+                if (resizeRafRef.current) cancelAnimationFrame(resizeRafRef.current);
+                if (resizeCurrHRef.current != null) setTimelineHeight(resizeCurrHRef.current);
               };
               window.addEventListener('mousemove', onMove);
               window.addEventListener('mouseup', onUp);
