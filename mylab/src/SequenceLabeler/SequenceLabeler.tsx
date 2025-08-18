@@ -37,6 +37,10 @@ import { loadDirHandle, saveDirHandle } from "../utils/handles";
 
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
+type DirHandleWithPerm = FileSystemDirectoryHandle & {
+  queryPermission?: (opts: { mode: "read" | "readwrite" }) => Promise<PermissionState>;
+};
+
 const DEFAULT_COLORS = [
   "#e6194b",
   "#3cb44b",
@@ -81,7 +85,6 @@ const SequenceLabeler: React.FC<{
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const [sideWidth, setSideWidth] = useState(240);
-  const MIN_SIDE_WIDTH = 88;
   const cacheRef = useRef(new LRUFrames(prefetchRadius * 3));
   const [playing, setPlaying] = useState(false);
 
@@ -214,14 +217,13 @@ const SequenceLabeler: React.FC<{
 
   const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
     const entries: LocalFile[] = [];
-    // @ts-expect-error FileSystemDirectoryHandle.values is not yet typed
     for await (const entry of (
       dir as unknown as { values(): AsyncIterable<FileSystemHandle> }
     ).values()) {
       if (entry.kind === "file") {
         const name = String(entry.name);
         if (!/\.(png|jpg|jpeg|webp)$/i.test(name)) continue;
-        const file = await entry.getFile();
+        const file = await (entry as FileSystemFileHandle).getFile();
         const url = URL.createObjectURL(file);
         entries.push({ name, handle: entry as FileSystemFileHandle, url });
       }
@@ -290,7 +292,7 @@ const SequenceLabeler: React.FC<{
         const handle = await loadDirHandle(storagePrefix);
         if (
           handle &&
-          (await handle.queryPermission({ mode: "read" })) === "granted"
+          (await (handle as DirHandleWithPerm).queryPermission?.({ mode: "read" })) === "granted"
         ) {
           await loadFromDir(handle);
           setNeedsImport(false);
@@ -500,7 +502,7 @@ const SequenceLabeler: React.FC<{
     (async () => {
       const total = localFiles ? localFiles.length : files.length;
       if (!meta || total <= 0) return;
-      const tasks: Promise<HTMLImageElement | null>[] = [];
+      const tasks: Promise<ImageBitmap | null>[] = [];
       for (let d = -prefetchRadius; d <= prefetchRadius; d++) {
         const i = frame + d;
         if (i < 0 || i >= total) continue;

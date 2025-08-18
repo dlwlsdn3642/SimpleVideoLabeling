@@ -31,11 +31,11 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
           <input
             type="checkbox"
             checked={isSel}
-            onChange={e => setSelectedIds(prev => {
-              const n = new Set(prev);
+            onChange={e => {
+              const n = new Set(selectedIds);
               if (e.target.checked) n.add(t.track_id); else n.delete(t.track_id);
-              return n;
-            })}
+              setSelectedIds(n);
+            }}
             title="select for multi"
           />
           <div style={{ width: 12, height: 12, background: labelSet.colors[t.class_id], border: "1px solid #333" }} />
@@ -68,7 +68,7 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
     );
   };
 
-  const rendered: JSX.Element[] = [];
+  const rendered: React.ReactElement[] = [];
   labelSet.classes.forEach((name, classId) => {
     const clsTracks = grouped[classId];
     if (!clsTracks) return;
