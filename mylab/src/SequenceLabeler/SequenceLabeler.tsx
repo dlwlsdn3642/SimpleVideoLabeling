@@ -105,6 +105,7 @@ const SequenceLabeler: React.FC<{
   const lastDecodeReqRef = useRef(0);
   const decodeIntervalMsRef = useRef(1000 / 30); // aim ~30 decode ops per second
   const decodeScaleHintRef = useRef(1);
+  const upgradeInFlightRef = useRef(new Set<number>());
 
   // Keep decode cadence tied to targetFPS
   useEffect(() => {
@@ -500,7 +501,7 @@ const SequenceLabeler: React.FC<{
   // Deduplicate in-flight image loads to improve fast seeking responsiveness
   const inFlightRef = useRef(new Map<number, Promise<ImageBitmap | null>>());
   const getImage = useCallback(
-    async (idx: number): Promise<ImageBitmap | null> => {
+    async (idx: number, hintOverride?: number): Promise<ImageBitmap | null> => {
       if (!meta) return null;
       const total = localFiles ? localFiles.length : files.length;
       if (idx < 0 || idx >= total) return null;
@@ -517,7 +518,7 @@ const SequenceLabeler: React.FC<{
           const c = viewportRef.current;
           const baseW = c?.width ?? Math.round((meta?.width ?? 0) * (scale || 1));
           const baseH = c?.height ?? Math.round((meta?.height ?? 0) * (scale || 1));
-          const hint = decodeScaleHintRef.current || 1;
+          const hint = (hintOverride ?? decodeScaleHintRef.current) || 1;
           const targetW = Math.max(1, Math.round(baseW * hint));
           const targetH = Math.max(1, Math.round(baseH * hint));
           if (localFiles) {
@@ -726,7 +727,7 @@ const SequenceLabeler: React.FC<{
               const dir = desired > drawIndex ? 1 : desired < drawIndex ? -1 : 0;
               const total = (localFiles ? localFiles.length : files.length);
               const ahead = dir ? 8 : 4; // number of steps ahead
-              if (t - lastDecodeReqRef.current >= decodeIntervalMsRef.current) {
+              if (stride < 4 && (t - lastDecodeReqRef.current >= decodeIntervalMsRef.current)) {
                 lastDecodeReqRef.current = t;
                 for (let d = 1; d <= ahead; d++) {
                   const idx = drawIndex + dir * d * stride;
@@ -737,12 +738,15 @@ const SequenceLabeler: React.FC<{
                 }
               }
               // If stable and current bitmap is low-res, request a hi-res upgrade in the background
-              if (stride === 1 && drawBmp && drawBmp.width < c.width) {
+              if (stride === 1 && drawBmp && drawBmp.width < c.width && !upgradeInFlightRef.current.has(drawIndex)) {
                 if (t - lastDecodeReqRef.current >= decodeIntervalMsRef.current) {
                   lastDecodeReqRef.current = t;
+                  upgradeInFlightRef.current.add(drawIndex);
                   decodeScaleHintRef.current = 1;
-                  cacheRef.current.delete(drawIndex);
-                  void getImage(drawIndex).then(() => setRenderTick(x => x + 1));
+                  void getImage(drawIndex, 1).then(() => {
+                    upgradeInFlightRef.current.delete(drawIndex);
+                    setRenderTick(x => x + 1);
+                  });
                 }
               }
             }
