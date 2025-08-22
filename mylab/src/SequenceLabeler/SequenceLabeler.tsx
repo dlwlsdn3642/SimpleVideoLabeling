@@ -34,6 +34,7 @@ import {
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle } from "../utils/handles";
+import { TranstClient, blobToBase64 } from "../lib/transtClient";
 
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
@@ -102,6 +103,11 @@ const SequenceLabeler: React.FC<{
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const cacheRef = useRef(new LRUFrames(Math.max(96, prefetchRadius * 10)));
   const [playing, setPlaying] = useState(false);
+  const [tracking, setTracking] = useState(false);
+  const [canTrack, setCanTrack] = useState(false);
+  const clientRef = useRef<TranstClient | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const abortRef = useRef<{ active: boolean; reason?: string }>({ active: false });
   // Remember last successfully drawn bitmap to avoid blanks
   const lastDrawnRef = useRef<{ frame: number; bmp: ImageBitmap | null }>({ frame: -1, bmp: null });
   // Bump to coalesce redraws when images finish decoding
@@ -349,6 +355,15 @@ const SequenceLabeler: React.FC<{
   });
   const [keyUIOpen, setKeyUIOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
+
+  // Enable/disable Track button based on selection & rect visibility
+  useEffect(() => {
+    if (!meta) { setCanTrack(false); return; }
+    const t = tracks.find((tt) => selectedIds.has(tt.track_id)) || null;
+    if (!t) { setCanTrack(false); return; }
+    const r = rectAtFrame(t, frame, interpolate);
+    setCanTrack(!!r && !t.hidden);
+  }, [selectedIds, tracks, frame, interpolate, meta]);
 
   // layout refs for timeline area
   const timelineViewRef = useRef<HTMLDivElement | null>(null);
@@ -1303,6 +1318,124 @@ const SequenceLabeler: React.FC<{
     );
   }
 
+  /** ===== Transt Tracking integration ===== */
+  async function getFrameBlobAt(idx: number): Promise<Blob | null> {
+    try {
+      if (localFiles) {
+        const file = await localFiles[idx].handle.getFile();
+        return file;
+      } else {
+        const url = `${framesBaseUrl}/${files[idx]}`;
+        const res = await fetch(url, { cache: 'force-cache' });
+        if (!res.ok) return null;
+        return await res.blob();
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  function isBBoxRelative(b: [number, number, number, number]): boolean {
+    const mx = Math.max(Math.abs(b[0]), Math.abs(b[1]), Math.abs(b[2]), Math.abs(b[3]));
+    return mx <= 1.5; // tolerate tiny float error
+  }
+
+  async function ensureSession(): Promise<string> {
+    if (!clientRef.current) clientRef.current = new TranstClient();
+    if (sessionIdRef.current) return sessionIdRef.current;
+    const resp = await clientRef.current.createSession();
+    sessionIdRef.current = resp.session_id;
+    return resp.session_id;
+  }
+
+  function attachAbortListeners() {
+    abortRef.current = { active: false };
+    const onAbort = () => { abortRef.current.active = true; };
+    const onKey = (e: KeyboardEvent) => {
+      // Any navigation or play key cancels
+      const keys = new Set([
+        'ArrowLeft','ArrowRight','Shift',' ','Space','Home','End','PageUp','PageDown'
+      ]);
+      if (keys.has(e.key)) abortRef.current.active = true;
+    };
+    window.addEventListener('mousedown', onAbort, { once: false });
+    window.addEventListener('wheel', onAbort, { once: false });
+    window.addEventListener('keydown', onKey, { once: false });
+    return () => {
+      window.removeEventListener('mousedown', onAbort);
+      window.removeEventListener('wheel', onAbort);
+      window.removeEventListener('keydown', onKey);
+    };
+  }
+
+  async function startTracking() {
+    if (tracking) return;
+    if (!meta) return;
+    const sel = tracks.find((t) => selectedIds.has(t.track_id));
+    if (!sel || sel.hidden) return;
+    const curRect = rectAtFrame(sel, frame, interpolate);
+    if (!curRect) return; // no rect or presence hidden
+
+    setPlaying(false);
+    setTracking(true);
+    const detach = attachAbortListeners();
+    try {
+      // If no keyframe exactly at current frame, add one
+      const hasKFHere = sel.keyframes.some((k) => k.frame === frame && !k.absent);
+      if (!hasKFHere) {
+        addKeyframe(sel.track_id, frame);
+      }
+
+      // Prepare init payload
+      const sId = await ensureSession();
+      const blob0 = await getFrameBlobAt(frame);
+      if (!blob0) throw new Error('frame blob unavailable');
+      const img_b64_0 = await blobToBase64(blob0);
+      const bbox0: [number, number, number, number] = [curRect.x, curRect.y, curRect.w, curRect.h];
+      if (!clientRef.current) clientRef.current = new TranstClient();
+      const initResp = await clientRef.current.init(sId, img_b64_0, bbox0, sel.transt_target_id);
+
+      // Persist target_id on track
+      const targetId = initResp.target_id;
+      applyTracks((ts) => ts.map((t) => t.track_id === sel.track_id ? { ...t, transt_target_id: targetId } : t), true);
+
+      // Iterate forward and update until last frame or abort
+      for (let f = frame + 1; f < (localFiles ? localFiles.length : files.length); f++) {
+        if (abortRef.current.active) break;
+        const blob = await getFrameBlobAt(f);
+        if (!blob) break;
+        const b64 = await blobToBase64(blob);
+        const up = await clientRef.current.update(sId, targetId, b64);
+        let [x, y, w, h] = up.bbox_xywh as [number, number, number, number];
+        if (isBBoxRelative(up.bbox_xywh)) {
+          x *= meta.width; y *= meta.height; w *= meta.width; h *= meta.height;
+        }
+        // Clamp
+        const rx = clamp(x, 0, Math.max(0, meta.width - 1));
+        const ry = clamp(y, 0, Math.max(0, meta.height - 1));
+        const rw = clamp(w, 1, meta.width - rx);
+        const rh = clamp(h, 1, meta.height - ry);
+        // Save keyframe
+        applyTracks((ts) => ts.map((t) => t.track_id === sel.track_id ? ensureKFAt(t, f, { x: rx, y: ry, w: rw, h: rh }) : t), true);
+        setFrame(f);
+      }
+
+      // Always drop target when finished
+      try { await clientRef.current.dropTarget(sId, initResp.target_id); } catch {}
+    } catch (err) {
+      console.error('tracking failed', err);
+      try {
+        if (clientRef.current && sessionIdRef.current && (tracks.find(t => selectedIds.has(t.track_id))?.transt_target_id)) {
+          await clientRef.current.dropTarget(sessionIdRef.current, tracks.find(t => selectedIds.has(t.track_id))!.transt_target_id!);
+        }
+      } catch {}
+    } finally {
+      detach();
+      setTracking(false);
+      abortRef.current.active = false;
+    }
+  }
+
   /** ===== Export ===== */
   function exportJSON() {
     if (!meta) return;
@@ -1461,6 +1594,9 @@ const SequenceLabeler: React.FC<{
         onOpenShortcuts={() => setKeyUIOpen(true)}
         fps={targetFPS}
         onChangeFPS={(v) => setTargetFPS(v)}
+        onStartTrack={startTracking}
+        canTrack={canTrack && !tracking}
+        tracking={tracking}
       />
 
       {/* Viewport + RightPanel */}

@@ -22,6 +22,8 @@ export type Track = {
   name?: string;
   keyframes: Keyframe[]; // sorted asc
   hidden?: boolean;      // UI on/off
+  // Optional tracker linkage
+  transt_target_id?: string;
 };
 
 export type LabelSet = {

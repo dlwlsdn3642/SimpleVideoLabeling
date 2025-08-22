@@ -23,6 +23,9 @@ type Props = {
   onOpenShortcuts: () => void;
   fps: number;
   onChangeFPS: (fps: number) => void;
+  onStartTrack: () => void;
+  canTrack: boolean;
+  tracking: boolean;
 };
 
 const SLTopBar: React.FC<Props> = ({
@@ -44,6 +47,9 @@ const SLTopBar: React.FC<Props> = ({
   onOpenShortcuts,
   fps,
   onChangeFPS,
+  onStartTrack,
+  canTrack,
+  tracking,
 }) => {
   if (shouldInjectError('SLTopBar')) {
     throw new Error('Injected error: SLTopBar');
@@ -88,6 +94,10 @@ const SLTopBar: React.FC<Props> = ({
       </label>
 
       <button onClick={onTogglePresence} disabled={!canTogglePresence}>Toggle Presence (N)</button>
+
+      <button onClick={onStartTrack} disabled={!canTrack} aria-label="Start tracking">
+        {tracking ? 'Tracking…' : 'Track'}
+      </button>
 
       <button style={{ marginLeft: "auto" }} onClick={onImportFolder}>Import Folder</button>
       {needsImport && (
