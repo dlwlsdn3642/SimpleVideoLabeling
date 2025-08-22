@@ -60,6 +60,7 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
             if (name !== null) setTracks(ts => ts.map(x => x.track_id === t.track_id ? { ...x, name } : x), true);
           }}>Rename</button>
           <button onClick={() => setTracks(ts => ts.filter(x => x.track_id !== t.track_id), true)}>Delete</button>
+          <button onClick={() => console.log("Track", t.track_id)}>Track</button>
         </div>
         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.8 }}>
           Absent after: {t.keyframes.filter(k => k.absent).map(k => k.frame).join(", ") || "(none)"}
