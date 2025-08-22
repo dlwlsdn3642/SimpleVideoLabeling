@@ -24,6 +24,8 @@ type Props = {
   onCopySelectedTracks: () => void;
   onPasteTracks: () => void;
   canPaste: boolean;
+  onTrack?: (t: Track) => void;
+  canTrackAtFrame?: (t: Track) => boolean;
 };
 
 const SLRightPanel: React.FC<Props> = ({
@@ -44,6 +46,8 @@ const SLRightPanel: React.FC<Props> = ({
   onCopySelectedTracks,
   onPasteTracks,
   canPaste,
+  onTrack,
+  canTrackAtFrame,
 }) => {
   if (shouldInjectError('SLRightPanel')) {
     throw new Error('Injected error: SLRightPanel');
@@ -211,6 +215,8 @@ const SLRightPanel: React.FC<Props> = ({
           setTracks={applyTracks}
           hiddenClasses={hiddenClasses}
           setHiddenClasses={setHiddenClasses}
+          onTrack={onTrack}
+          canTrackAtFrame={canTrackAtFrame}
         />
       </div>
 
