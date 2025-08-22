@@ -27,6 +27,7 @@ import {
   pad,
   uuid,
   rectAtFrame,
+  isVisibleAt,
   handleAt,
   findKFIndexAtOrBefore,
   rectFromKF,
@@ -132,6 +133,7 @@ const SequenceLabeler: React.FC<{
   const [hiddenClasses, setHiddenClasses] = useState<Set<number>>(new Set());
   const historyRef = useRef<Track[][]>([]);
   const futureRef = useRef<Track[][]>([]);
+  const sessionRef = useRef<string | null>(null);
   const applyTracks = useCallback(
     (updater: (ts: Track[]) => Track[], record = false) => {
       setTracks((ts) => {
@@ -161,6 +163,34 @@ const SequenceLabeler: React.FC<{
       historyRef.current.push(JSON.parse(JSON.stringify(curr)));
       return next;
     });
+  }, []);
+  useEffect(() => {
+    let aborted = false;
+    (async () => {
+      try {
+        const r = await fetch("http://localhost:8000/session/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (!r.ok) throw new Error(`session create ${r.status}`);
+        const data = await r.json();
+        if (!aborted) sessionRef.current = data.session_id;
+      } catch (err) {
+        console.error("session create", err);
+      }
+    })();
+    return () => {
+      aborted = true;
+      const sid = sessionRef.current;
+      if (sid) {
+        fetch("http://localhost:8000/session/drop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sid }),
+        }).catch(() => {});
+      }
+    };
   }, []);
   const [interpolate, setInterpolate] = useState(true);
   const [showGhosts, setShowGhosts] = useState(true);
@@ -1464,6 +1494,7 @@ const SequenceLabeler: React.FC<{
           onCopySelectedTracks={copySelectedTracks}
           onPasteTracks={pasteTracks}
           canPaste={!!clipboardRef.current?.length}
+          onTrack={trackTarget}
         />
       </div>
 
@@ -1501,6 +1532,106 @@ const SequenceLabeler: React.FC<{
     }));
     applyTracks((ts) => [...ts, ...pasted], true);
     setSelectedIds(new Set(pasted.map((t) => t.track_id)));
+  }
+
+  const bufferToBase64 = (buffer: ArrayBuffer): string => {
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(buffer).toString('base64');
+    }
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  };
+
+  async function frameToBase64(idx: number): Promise<string | null> {
+    try {
+      if (localFiles) {
+        const file = await localFiles[idx].handle.getFile();
+        const buf = await file.arrayBuffer();
+        return bufferToBase64(buf);
+      } else {
+        const url = `${framesBaseUrl}/${files[idx]}`;
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        return bufferToBase64(buf);
+      }
+    } catch (err) {
+      console.error('frameToBase64', err);
+      return null;
+    }
+  }
+
+  async function trackTarget(t: Track) {
+    const sid = sessionRef.current;
+    if (!sid || !meta) return;
+    if (t.hidden) return;
+    const total = localFiles ? localFiles.length : files.length;
+    if (frame >= total) return;
+    const r0 = rectAtFrame(t, frame, interpolate);
+    if (!r0) return;
+    if (!isVisibleAt(t, frame)) return;
+    applyTracks((ts) => ts.map((x) => (x.track_id === t.track_id ? ensureKFAt(x, frame, r0) : x)), true);
+    const imgB64 = await frameToBase64(frame);
+    if (!imgB64) return;
+    let targetId = t.target_id;
+    try {
+      const r = await fetch('http://localhost:8000/track/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sid, image_b64: imgB64, bbox_xywh: [r0.x, r0.y, r0.w, r0.h], target_id: targetId }),
+      });
+      if (!r.ok) throw new Error(`init ${r.status}`);
+      const data = await r.json();
+      targetId = data.target_id;
+      applyTracks((ts) => ts.map((x) => (x.track_id === t.track_id ? { ...x, target_id: targetId } : x)));
+    } catch (err) {
+      console.error('track init', err);
+      return;
+    }
+    let cur = frame;
+    let aborted = false;
+    while (cur < total - 1) {
+      if (stateRef.current.frame !== cur) { aborted = true; break; }
+      const next = cur + 1;
+      setFrame(next);
+      const b64 = await frameToBase64(next);
+      if (!b64) { aborted = true; break; }
+      let resp: any;
+      try {
+        const r = await fetch('http://localhost:8000/track/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sid, target_id: targetId, image_b64: b64 }),
+        });
+        if (!r.ok) throw new Error(`update ${r.status}`);
+        resp = await r.json();
+      } catch (err) {
+        console.error('track update', err);
+        aborted = true;
+        break;
+      }
+      const [ax, ay, aw, ah] = resp.bbox_xywh as [number, number, number, number];
+      const rx = ax / meta.width;
+      const ry = ay / meta.height;
+      const rw = aw / meta.width;
+      const rh = ah / meta.height;
+      const rect = { x: rx * meta.width, y: ry * meta.height, w: rw * meta.width, h: rh * meta.height };
+      applyTracks((ts) => ts.map((x) => (x.track_id === t.track_id ? ensureKFAt(x, next, rect) : x)), true);
+      cur = next;
+    }
+    try {
+      await fetch('http://localhost:8000/track/drop_target', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sid, target_id: targetId }),
+      });
+    } catch {}
+    if (aborted) return;
   }
 };
 

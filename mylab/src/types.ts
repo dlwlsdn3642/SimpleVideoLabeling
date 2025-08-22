@@ -22,6 +22,7 @@ export type Track = {
   name?: string;
   keyframes: Keyframe[]; // sorted asc
   hidden?: boolean;      // UI on/off
+  target_id?: string;    // transient tracker id
 };
 
 export type LabelSet = {
