@@ -171,7 +171,7 @@ const SequenceLabeler: React.FC<{
         const r = await fetch(`${TRANST_API_BASE}/session/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: "{}",
+          body: JSON.stringify({}),
         });
         if (!r.ok) throw new Error(`session create ${r.status}`);
         const data = await r.json();
