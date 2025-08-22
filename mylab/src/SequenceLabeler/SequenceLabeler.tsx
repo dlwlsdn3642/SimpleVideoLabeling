@@ -6,7 +6,7 @@ import React, {
   useState,
   startTransition,
 } from "react";
-import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
+import { DEFAULT_SCHEMA, DEFAULT_VERSION, TRANST_API_BASE } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
 import { ShortcutModal } from "../components";
 import styles from "./SequenceLabeler.module.css";
@@ -168,7 +168,7 @@ const SequenceLabeler: React.FC<{
     let aborted = false;
     (async () => {
       try {
-        const r = await fetch("http://localhost:8000/session/create", {
+        const r = await fetch(`${TRANST_API_BASE}/session/create`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}",
@@ -184,7 +184,7 @@ const SequenceLabeler: React.FC<{
       aborted = true;
       const sid = sessionRef.current;
       if (sid) {
-        fetch("http://localhost:8000/session/drop", {
+        fetch(`${TRANST_API_BASE}/session/drop`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sid }),
@@ -1580,7 +1580,7 @@ const SequenceLabeler: React.FC<{
     if (!imgB64) return;
     let targetId = t.target_id;
     try {
-      const r = await fetch('http://localhost:8000/track/init', {
+      const r = await fetch(`${TRANST_API_BASE}/track/init`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid, image_b64: imgB64, bbox_xywh: [r0.x, r0.y, r0.w, r0.h], target_id: targetId }),
@@ -1603,7 +1603,7 @@ const SequenceLabeler: React.FC<{
       if (!b64) { aborted = true; break; }
       let resp: any;
       try {
-        const r = await fetch('http://localhost:8000/track/update', {
+        const r = await fetch(`${TRANST_API_BASE}/track/update`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: sid, target_id: targetId, image_b64: b64 }),
@@ -1625,7 +1625,7 @@ const SequenceLabeler: React.FC<{
       cur = next;
     }
     try {
-      await fetch('http://localhost:8000/track/drop_target', {
+      await fetch(`${TRANST_API_BASE}/track/drop_target`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sid, target_id: targetId }),

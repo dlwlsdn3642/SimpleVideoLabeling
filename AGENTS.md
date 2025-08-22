@@ -3,6 +3,7 @@
 - Run `npm test` inside the `mylab` directory to execute the Vitest suite before committing.
 - No additional lint steps are required.
 - If you modify files, ensure formatting via existing project configuration.
+- The TransT tracking server is available at `http://localhost:7000`.
 
 ## Project Layout and Roadmap
 
