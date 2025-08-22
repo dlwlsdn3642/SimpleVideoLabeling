@@ -12,6 +12,8 @@ origins = [
     "http://127.0.0.1:8010",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -21,39 +23,58 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # --------- Schemas ---------
 class CreateSessionReq(BaseModel):
     session_id: Optional[str] = None
-    device: Optional[str] = Field(default=None, description="'cuda:0' 또는 'cpu' 등. None이면 자동판별")
+    device: Optional[str] = Field(
+        default=None, description="'cuda:0' 또는 'cpu' 등. None이면 자동판별"
+    )
+
+
 class CreateSessionResp(BaseModel):
     session_id: str
+
+
 class InitReq(BaseModel):
     session_id: str
     image_b64: str
     bbox_xywh: List[float]
     target_id: Optional[str] = None
+
+
 class InitResp(BaseModel):
     ok: bool
     elapsed_ms: int
     target_id: str
+
+
 class UpdateReq(BaseModel):
     session_id: str
     target_id: str
     image_b64: str
+
+
 class UpdateResp(BaseModel):
     bbox_xywh: List[float]
     score: Optional[float] = None
     elapsed_ms: int
+
+
 class DropTargetReq(BaseModel):
     session_id: str
     target_id: str
+
+
 class DropSessionReq(BaseModel):
     session_id: str
+
 
 # --------- Endpoints ---------
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 @app.post("/session/create", response_model=CreateSessionResp)
 def create_session(req: CreateSessionReq):
@@ -63,6 +84,7 @@ def create_session(req: CreateSessionReq):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"session_id": sid}
+
 
 @app.post("/track/init", response_model=InitResp)
 def track_init(req: InitReq):
@@ -75,6 +97,7 @@ def track_init(req: InitReq):
         raise HTTPException(status_code=404, detail="invalid session_id or target_id")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"init failed: {e}")
+
 
 @app.post("/track/update", response_model=UpdateResp)
 def track_update(req: UpdateReq):
@@ -91,6 +114,7 @@ def track_update(req: UpdateReq):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"update failed: {e}")
 
+
 @app.post("/track/drop_target")
 def drop_target(req: DropTargetReq):
     try:
@@ -98,6 +122,7 @@ def drop_target(req: DropTargetReq):
         return {"ok": True}
     except KeyError:
         raise HTTPException(status_code=404, detail="invalid session_id")
+
 
 @app.post("/session/drop")
 def drop_session(req: DropSessionReq):
