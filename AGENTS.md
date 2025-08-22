@@ -49,8 +49,9 @@
    - `POST /session/create` – create session; body: `{session_id?, device?}` → `{session_id}`.
    - `POST /track/init` – initialize target with image and bbox; body: `{session_id, image_b64, bbox_xywh, target_id?}` → `{ok, elapsed_ms, target_id}`.
    - `POST /track/update` – update target with new frame; body: `{session_id, target_id, image_b64}` → `{bbox_xywh, score?, elapsed_ms}`.
-   - `POST /track/drop_target` – remove target from session; body: `{session_id, target_id}` → `{ok: True}`.
-   - `POST /session/drop` – close session; body: `{session_id}` → `{ok: True}`.
+    - `POST /track/drop_target` – remove target from session; body: `{session_id, target_id}` → `{ok: True}`.
+    - `POST /session/drop` – close session; body: `{session_id}` → `{ok: True}`.
+   - Except for `/health`, all TransT endpoints above require `POST` requests.
 - `Docker/transt_wrapper.py` (lines 1-150) – Transt tracking wrapper and session service.
 
 ### UI Layout Hierarchy
