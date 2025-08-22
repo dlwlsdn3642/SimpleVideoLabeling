@@ -9,11 +9,9 @@ export type UpdateResp = { bbox_xywh: [number, number, number, number]; score?: 
 export class TranstClient {
   private base: string;
 
-  constructor(cfg?: Partial<TranstConfig>) {
-    // Allow overriding via localStorage for convenience
-    const ls = typeof window !== 'undefined' ? localStorage.getItem('transt_server_base') : null;
-    const envBase = (ls || cfg?.baseUrl || 'http://localhost:8010').replace(/\/$/, '');
-    this.base = envBase;
+  constructor(_cfg?: Partial<TranstConfig>) {
+    // Fixed API base as requested
+    this.base = 'http://localhost:7000'.replace(/\/$/, '');
   }
 
   async createSession(sessionId?: string): Promise<CreateSessionResp> {
@@ -65,4 +63,3 @@ export async function blobToBase64(blob: Blob): Promise<string> {
     fr.readAsDataURL(blob);
   });
 }
-
