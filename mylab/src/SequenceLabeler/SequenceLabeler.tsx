@@ -104,7 +104,6 @@ const SequenceLabeler: React.FC<{
   const cacheRef = useRef(new LRUFrames(Math.max(96, prefetchRadius * 10)));
   const [playing, setPlaying] = useState(false);
   const [tracking, setTracking] = useState(false);
-  const [canTrack, setCanTrack] = useState(false);
   const clientRef = useRef<TranstClient | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortRef = useRef<{ active: boolean; reason?: string }>({ active: false });
@@ -356,14 +355,20 @@ const SequenceLabeler: React.FC<{
   const [keyUIOpen, setKeyUIOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
-  // Enable/disable Track button based on selection & rect visibility
+  // Create a session as soon as user connects/loads the app
   useEffect(() => {
-    if (!meta) { setCanTrack(false); return; }
-    const t = tracks.find((tt) => selectedIds.has(tt.track_id)) || null;
-    if (!t) { setCanTrack(false); return; }
-    const r = rectAtFrame(t, frame, interpolate);
-    setCanTrack(!!r && !t.hidden);
-  }, [selectedIds, tracks, frame, interpolate, meta]);
+    (async () => {
+      try {
+        if (!clientRef.current) clientRef.current = new TranstClient();
+        if (!sessionIdRef.current) {
+          const resp = await clientRef.current.createSession();
+          sessionIdRef.current = resp.session_id;
+        }
+      } catch (err) {
+        console.error('Failed to create session', err);
+      }
+    })();
+  }, []);
 
   // layout refs for timeline area
   const timelineViewRef = useRef<HTMLDivElement | null>(null);
@@ -1368,10 +1373,10 @@ const SequenceLabeler: React.FC<{
     };
   }
 
-  async function startTracking() {
+  async function startTracking(trackOverride?: Track) {
     if (tracking) return;
     if (!meta) return;
-    const sel = tracks.find((t) => selectedIds.has(t.track_id));
+    const sel = trackOverride ?? tracks.find((t) => selectedIds.has(t.track_id));
     if (!sel || sel.hidden) return;
     const curRect = rectAtFrame(sel, frame, interpolate);
     if (!curRect) return; // no rect or presence hidden
@@ -1594,9 +1599,6 @@ const SequenceLabeler: React.FC<{
         onOpenShortcuts={() => setKeyUIOpen(true)}
         fps={targetFPS}
         onChangeFPS={(v) => setTargetFPS(v)}
-        onStartTrack={startTracking}
-        canTrack={canTrack && !tracking}
-        tracking={tracking}
       />
 
       {/* Viewport + RightPanel */}
@@ -1717,6 +1719,12 @@ const SequenceLabeler: React.FC<{
           onCopySelectedTracks={copySelectedTracks}
           onPasteTracks={pasteTracks}
           canPaste={!!clipboardRef.current?.length}
+          onTrack={(t) => startTracking(t)}
+          canTrackAtFrame={(t) => {
+            if (!meta) return false;
+            const r = rectAtFrame(t, frame, interpolate);
+            return !!r && !t.hidden && !tracking;
+          }}
         />
       </div>
 

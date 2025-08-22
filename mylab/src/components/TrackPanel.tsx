@@ -9,9 +9,11 @@ type Props = {
   setTracks: (updater: (ts: Track[]) => Track[], record?: boolean) => void;
   hiddenClasses?: Set<number>;
   setHiddenClasses?: (updater: (prev: Set<number>) => Set<number>) => void;
+  onTrack?: (t: Track) => void;
+  canTrackAtFrame?: (t: Track) => boolean;
 };
 
-const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelectedIds, setTracks, hiddenClasses, setHiddenClasses }) => {
+const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelectedIds, setTracks, hiddenClasses, setHiddenClasses, onTrack, canTrackAtFrame }) => {
   const grouped: Record<number, Track[]> = {};
   for (const t of tracks) {
     (grouped[t.class_id] = grouped[t.class_id] ?? []).push(t);
@@ -60,7 +62,7 @@ const TrackPanel: React.FC<Props> = ({ labelSet, tracks, selectedIds, setSelecte
             if (name !== null) setTracks(ts => ts.map(x => x.track_id === t.track_id ? { ...x, name } : x), true);
           }}>Rename</button>
           <button onClick={() => setTracks(ts => ts.filter(x => x.track_id !== t.track_id), true)}>Delete</button>
-          <button onClick={() => console.log("Track", t.track_id)}>Track</button>
+          <button onClick={() => onTrack?.(t)} disabled={canTrackAtFrame ? !canTrackAtFrame(t) : false}>Track</button>
         </div>
         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.8 }}>
           Absent after: {t.keyframes.filter(k => k.absent).map(k => k.frame).join(", ") || "(none)"}
