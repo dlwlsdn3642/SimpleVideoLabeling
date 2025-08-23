@@ -757,8 +757,9 @@ const SequenceLabeler: React.FC<{
   useEffect(() => { stateRef.current.draftRect = draftRect; }, [draftRect]);
 
   useEffect(() => {
-    if (workerActive) return; // worker handles drawing loop
+    if (workerActive || offscreenTransferredRef.current) return; // worker or offscreen handles drawing
     const tick = async (t: number) => {
+      if (offscreenTransferredRef.current) return;
       const last = lastTickRef.current;
       const minInterval = 1000 / targetFPS;
       if (t - last >= minInterval) {
@@ -767,7 +768,7 @@ const SequenceLabeler: React.FC<{
         const { frame: f, tracks: ts, selectedIds: sel, labelSet: ls, interpolate: itp, showGhosts: ghosts, ghostAlpha: gAlpha, meta: m, scale: sc, draftRect: dr } = stateRef.current;
         const c = viewportRef.current;
         if (c && m) {
-          const ctx = c.getContext('2d');
+          const ctx = offscreenTransferredRef.current ? null : c.getContext('2d');
           if (ctx) {
             // sample target to reduce decode thrash at very high input speeds
             const total = (localFiles ? localFiles.length : files.length);
