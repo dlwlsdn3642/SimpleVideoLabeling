@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
-import { saveDirHandle } from "./utils/handles";
 import appStyles from "./App.module.css";
 import { ErrorBoundary } from "./components";
 
@@ -25,46 +24,13 @@ export default function App() {
     }
   };
 
-  const handleCreateTask = async () => {
+  const handleCreateTask = () => {
     if (!currentProject) return;
     const name = prompt("Task name?");
     if (!name) return;
-    if ("showDirectoryPicker" in window) {
-      try {
-        const dir: FileSystemDirectoryHandle = await (window as unknown as {
-          showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
-        }).showDirectoryPicker();
-        const t = pm.current.addTask(currentProject.id, name, dir.name, true);
-        await saveDirHandle(t.id, dir);
-        refresh();
-        setCurrentTask(t);
-        return;
-      } catch {
-        // fall through to input method
-      }
-    }
-    const input = document.createElement("input");
-    input.type = "file";
-    input.setAttribute("webkitdirectory", "true");
-    input.onchange = () => {
-      const files = input.files;
-      if (!files || !files.length) return;
-      const file = files[0] as File & { path?: string; webkitRelativePath?: string };
-      const relPath = file.webkitRelativePath ?? "";
-      const fullPath = file.path ?? "";
-      let folder = "";
-      if (fullPath) {
-        folder = fullPath.slice(0, fullPath.length - relPath.length)
-          .replace(/\\/g, "/")
-          .replace(/\/$/, "");
-      } else {
-        folder = relPath.split("/")[0] ?? "";
-      }
-      const t = pm.current.addTask(currentProject.id, name, folder);
-      refresh();
-      setCurrentTask(t);
-    };
-    input.click();
+    const t = pm.current.addTask(currentProject.id, name, "");
+    refresh();
+    setCurrentTask(t);
   };
 
   const selectProject = (id: string) => {

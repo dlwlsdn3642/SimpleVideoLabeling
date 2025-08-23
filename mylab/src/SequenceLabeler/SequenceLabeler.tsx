@@ -380,6 +380,25 @@ const SequenceLabeler: React.FC<{
   const resizeRafRef = useRef<number | null>(null);
   const resizeCurrHRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    setMeta(null);
+    setFiles([]);
+    setLocalFiles(null);
+    setFrame(0);
+    cacheRef.current.clear();
+    setLabelSet({
+      name: initialLabelSetName,
+      classes: defaultClasses,
+      colors: defaultClasses.map((_, i) => DEFAULT_COLORS[i % DEFAULT_COLORS.length]),
+    });
+    setAvailableSets([]);
+    setTracks([]);
+    setHiddenClasses(new Set());
+    historyRef.current = [];
+    futureRef.current = [];
+    setNeedsImport(true);
+  }, [storagePrefix, initialLabelSetName, defaultClasses]);
+
   const loadFromDir = useCallback(async (dir: FileSystemDirectoryHandle) => {
     const entries: LocalFile[] = [];
     for await (const entry of (
@@ -1537,6 +1556,61 @@ const SequenceLabeler: React.FC<{
     onFolderImported?.(dir.name);
   }
 
+  async function importVideo() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "video/*";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      const video = document.createElement("video");
+      video.src = url;
+      await new Promise<void>((res) => {
+        if (video.readyState >= 1) res();
+        else video.onloadedmetadata = () => res();
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const fps = 30;
+      const frames: LocalFile[] = [];
+      const total = Math.floor(video.duration * fps);
+      for (let i = 0; i < total; i++) {
+        video.currentTime = i / fps;
+        await new Promise<void>((res) => {
+          video.onseeked = () => res();
+        });
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob: Blob | null = await new Promise((res) => canvas.toBlob(res));
+        if (!blob) continue;
+        const name = `${pad(i, 5)}.png`;
+        const handle = {
+          getFile: async () => new File([blob], name, { type: "image/png" }),
+        } as unknown as FileSystemFileHandle;
+        frames.push({ name, handle, url: URL.createObjectURL(blob) });
+      }
+      URL.revokeObjectURL(url);
+      const m: IndexMeta = {
+        width: canvas.width,
+        height: canvas.height,
+        fps,
+        count: frames.length,
+        files: frames.map((f) => f.name),
+      };
+      setMeta(m);
+      setLocalFiles(frames);
+      setFiles([]);
+      cacheRef.current.clear();
+      setFrame(0);
+      setNeedsImport(false);
+      onFolderImported?.(file.name);
+    };
+    input.click();
+  }
+
   /** ===== RAF-throttled seek for timeline ===== */
   const seekRaf = useRef<number | null>(null);
   const pendingSeek = useRef<number | null>(null);
@@ -1592,6 +1666,7 @@ const SequenceLabeler: React.FC<{
         onTogglePresence={togglePresenceAtCurrent}
         canTogglePresence={!!selectedTracks.length}
         onImportFolder={importFolder}
+        onImportVideo={importVideo}
         needsImport={needsImport}
         onSave={saveNow}
         onExportJSON={exportJSON}
