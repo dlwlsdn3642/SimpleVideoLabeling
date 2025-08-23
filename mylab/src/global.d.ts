@@ -6,6 +6,6 @@ declare module '*.module.css' {
 declare global {
   interface Window {
     __INJECT_ERR?: string;
+    MP4Box?: any;
   }
 }
-

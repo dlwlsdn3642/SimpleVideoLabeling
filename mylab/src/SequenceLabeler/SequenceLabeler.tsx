@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
+import VideoSource from "../lib/VideoSource";
 import { ShortcutModal } from "../components";
 import styles from "./SequenceLabeler.module.css";
 import SLTopBar from "./SLTopBar";
@@ -33,7 +34,7 @@ import {
   parseNumericKey,
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
-import { loadDirHandle, saveDirHandle } from "../utils/handles";
+import { loadDirHandle, saveDirHandle, loadFileHandle, saveFileHandle } from "../utils/handles";
 import { TranstClient, blobToBase64 } from "../lib/transtClient";
 
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
@@ -87,21 +88,15 @@ const SequenceLabeler: React.FC<{
   const workerRef = useRef<Worker | null>(null);
   const offscreenTransferredRef = useRef(false);
   const [workerActive, setWorkerActive] = useState(false);
-  const canUseOffscreen = useMemo(() => {
-    try {
-      return (
-        typeof window !== 'undefined' &&
-        typeof Worker !== 'undefined' &&
-        // @ts-ignore
-        !!(HTMLCanvasElement as any)?.prototype?.transferControlToOffscreen
-      );
-    } catch {
-      return false;
-    }
-  }, []);
+  // Disable OffscreenCanvas path to avoid transfer race when using 2D drawing + video worker
+  const canUseOffscreen = false;
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const cacheRef = useRef(new LRUFrames(Math.max(96, prefetchRadius * 10)));
+  const videoRef = useRef<VideoSource | null>(null);
+  const videoWorkerRef = useRef<Worker | null>(null);
+  const videoFileHandleRef = useRef<FileSystemFileHandle | null>(null);
+  const videoReqResolvesRef = useRef<Map<number, (bmp: ImageBitmap | null) => void>>(new Map());
   const [playing, setPlaying] = useState(false);
   const [tracking, setTracking] = useState(false);
   const clientRef = useRef<TranstClient | null>(null);
@@ -125,6 +120,19 @@ const SequenceLabeler: React.FC<{
   const decodeIntervalMsRef = useRef(1000 / 30); // aim ~30 decode ops per second
   const decodeScaleHintRef = useRef(1);
   const upgradeInFlightRef = useRef(new Set<number>());
+  const videoErrorRef = useRef<string | null>(null);
+
+  const clearViewport = useCallback(() => {
+    const c = viewportRef.current;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.save();
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.restore();
+  }, []);
 
   // Keep decode cadence tied to targetFPS
   useEffect(() => {
@@ -142,6 +150,7 @@ const SequenceLabeler: React.FC<{
   useEffect(() => {
     if (!canUseOffscreen) return;
     if (!meta) return; // need dimensions
+    if (videoRef.current || videoWorkerRef.current) return; // video path uses dedicated worker/in-thread
     const el = viewportRef.current;
     if (!el) return;
     if (workerRef.current) return; // already initialized
@@ -355,19 +364,26 @@ const SequenceLabeler: React.FC<{
   const [keyUIOpen, setKeyUIOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<string | null>(null);
 
-  // Create a session as soon as user connects/loads the app
+  // Create a tracker session only when server is reachable; avoid noisy logs when offline
   useEffect(() => {
+    let canceled = false;
     (async () => {
       try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 400);
+        const r = await fetch('http://localhost:7000/health', { signal: ctrl.signal }).catch(() => null);
+        clearTimeout(t);
+        if (!r || !r.ok) return; // server not available; skip
         if (!clientRef.current) clientRef.current = new TranstClient();
-        if (!sessionIdRef.current) {
-          const resp = await clientRef.current.createSession();
-          sessionIdRef.current = resp.session_id;
+        if (!sessionIdRef.current && !canceled) {
+          const resp = await clientRef.current.createSession().catch(() => null);
+          if (resp && !canceled) sessionIdRef.current = resp.session_id;
         }
-      } catch (err) {
-        console.error('Failed to create session', err);
+      } catch {
+        // silent when offline
       }
     })();
+    return () => { canceled = true; };
   }, []);
 
   // layout refs for timeline area
@@ -416,12 +432,133 @@ const SequenceLabeler: React.FC<{
       count: entries.length,
       files: entries.map((e) => e.name),
     };
+    lastDrawnRef.current = { frame: -1, bmp: null };
+    clearViewport();
     setMeta(m);
     setLocalFiles(entries);
     setFiles([]);
     cacheRef.current.clear();
     setFrame(0);
-  }, []);
+  }, [clearViewport]);
+
+  const loadFromVideoFile = useCallback(async (fileHandle: FileSystemFileHandle) => {
+    try {
+      videoErrorRef.current = null;
+      const hasMP4 = typeof window !== 'undefined' && (window as any).MP4Box;
+      const hasWC = typeof window !== 'undefined' && 'VideoDecoder' in window;
+      if (!hasMP4 || !hasWC) {
+        alert('이 비디오 기능은 MP4Box와 WebCodecs가 필요합니다.');
+        return;
+      }
+      // Use dedicated video worker (mp4box+webcodecs) to decode frames
+      const file = await fileHandle.getFile();
+      videoFileHandleRef.current = fileHandle;
+      // Stop image worker renderer
+      try { workerRef.current?.terminate(); } catch {}
+      workerRef.current = null;
+      setWorkerActive(false);
+      // Start video worker
+      const vw = new Worker(new URL('../workers/videoWorker.ts', import.meta.url), { type: 'module' });
+      videoWorkerRef.current = vw;
+      // Wire messages
+      vw.onmessage = async (e: MessageEvent) => {
+        const m: any = e.data;
+        if (!m) return;
+        if (m.type === 'hello') {
+          // send init with file size
+          vw.postMessage({ type: 'init', fileSize: file.size, initBytes: Math.min(4 * 1024 * 1024, file.size) });
+        } else if (m.type === 'need') {
+          try {
+            const { start, end } = m as { start: number; end: number };
+            const blob = file.slice(start, end + 1);
+            const buf = await blob.arrayBuffer();
+            vw.postMessage({ type: 'bytes', start, end, buf }, [buf as any]);
+          } catch (err) {
+            console.error('video bytes supply failed', err);
+          }
+        } else if (m.type === 'ready') {
+          console.log('[videoWorker] ready', m);
+          const { width, height, frames, fps } = m;
+          lastDrawnRef.current = { frame: -1, bmp: null };
+          clearViewport();
+          setMeta({ width, height, fps, count: frames, files: [] });
+          setLocalFiles(null);
+          setFiles([]);
+          cacheRef.current.clear();
+          setFrame(0);
+        } else if (m.type === 'frame') {
+          // Debug: log occasional frames
+          if ((m.frameIdx % 60) === 0) console.log('[videoWorker] frame', m.frameIdx);
+          const { frameIdx, bitmap } = m as { frameIdx: number; bitmap: ImageBitmap };
+          cacheRef.current.set(frameIdx, bitmap);
+          const res = videoReqResolvesRef.current.get(frameIdx);
+          if (res) { videoReqResolvesRef.current.delete(frameIdx); try { res(bitmap); } catch {} }
+          setRenderTick(x => x + 1);
+        } else if (m.type === 'vframe') {
+          // Fallback path: convert VideoFrame to ImageBitmap on main thread
+          const { frameIdx, frame } = m as any;
+          if (frame) {
+            try {
+              // @ts-ignore
+              createImageBitmap(frame).then((bmp) => {
+                try { frame.close?.(); } catch {}
+                cacheRef.current.set(frameIdx, bmp);
+                const res = videoReqResolvesRef.current.get(frameIdx);
+                if (res) { videoReqResolvesRef.current.delete(frameIdx); try { res(bmp); } catch {} }
+                setRenderTick(x => x + 1);
+              }).catch((e) => {
+                console.error('createImageBitmap (main) failed', e);
+                try { frame.close?.(); } catch {}
+              });
+            } catch (e) {
+              console.error('VideoFrame handling failed', e);
+            }
+          }
+        } else if (m.type === 'fatal') {
+          videoErrorRef.current = String(m.error || 'Video worker error');
+          setRenderTick(x => x + 1);
+          console.error('[videoWorker] fatal', m.error);
+        } else if (m.type === 'log') {
+          console.log('[videoWorker] log', m.msg);
+        } else if (m.type === 'stat') {
+          console.log('[videoWorker] stat', m);
+        }
+      };
+      // Update UI state
+      lastDrawnRef.current = { frame: -1, bmp: null };
+      clearViewport();
+      try { await saveFileHandle(`${storagePrefix}::video_file`, fileHandle); } catch {}
+    } catch (err) {
+      alert('영상 파일을 불러오지 못했습니다.');
+      console.error(err);
+    }
+  }, [storagePrefix, clearViewport]);
+
+  // On task/storage change, reset media state and canvas to avoid leaking previous content
+  useEffect(() => {
+    // Stop worker and video
+    try { workerRef.current?.terminate(); } catch {}
+    workerRef.current = null;
+    setWorkerActive(false);
+    videoRef.current?.dispose();
+    videoRef.current = null;
+    try { videoWorkerRef.current?.terminate(); } catch {}
+    videoWorkerRef.current = null;
+    videoFileHandleRef.current = null;
+    videoReqResolvesRef.current.clear();
+    // Clear caches and last drawn
+    cacheRef.current.clear();
+    lastDrawnRef.current = { frame: -1, bmp: null };
+    clearViewport();
+    // Reset media state
+    setMeta(null);
+    setFiles([]);
+    setLocalFiles(null);
+    setFrame(0);
+    setPlaying(false);
+    setNeedsImport(false);
+    videoErrorRef.current = null;
+  }, [storagePrefix, clearViewport]);
 
   /** ===== Restore & Load ===== */
   useEffect(() => {
@@ -443,15 +580,28 @@ const SequenceLabeler: React.FC<{
         if (typeof s.frame === "number") setFrame(s.frame);
         if (typeof s.interpolate === "boolean") setInterpolate(s.interpolate);
         if (typeof s.showGhosts === "boolean") setShowGhosts(s.showGhosts);
+        return;
       } catch (err) {
         console.error(err);
       }
     }
-  }, [storagePrefix]);
+    // No autosave for this task: reset to defaults to avoid leaking previous state
+    setLabelSet({
+      name: initialLabelSetName,
+      classes: defaultClasses,
+      colors: defaultClasses.map((_, i) => DEFAULT_COLORS[i % DEFAULT_COLORS.length]),
+    });
+    setTracks([]);
+    setSelectedIds(new Set());
+    setFrame(0);
+    setInterpolate(true);
+    setShowGhosts(true);
+    cacheRef.current.clear();
+  }, [storagePrefix, initialLabelSetName, defaultClasses]);
 
   useEffect(() => {
     let aborted = false;
-    if (localFiles) return;
+    if (localFiles || videoRef.current) return;
     (async () => {
       try {
         const handle = await loadDirHandle(storagePrefix);
@@ -462,14 +612,27 @@ const SequenceLabeler: React.FC<{
           await loadFromDir(handle);
           setNeedsImport(false);
           onFolderImported?.(handle.name);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    // Try previously saved video file handle (only when MP4Box + WebCodecs available)
+    try {
+      const hasMP4 = typeof window !== 'undefined' && (window as any).MP4Box;
+      const hasWC = typeof window !== 'undefined' && 'VideoDecoder' in window;
+      if (hasMP4 && hasWC) {
+        const vfh = await loadFileHandle(`${storagePrefix}::video_file`);
+        if (vfh) {
+          await loadFromVideoFile(vfh);
+          setNeedsImport(false);
           return;
         }
-      } catch {
-        /* ignore */
       }
-      try {
-        const r = await fetch(indexUrl);
-        if (!r.ok) throw new Error(`index fetch ${r.status}`);
+    } catch {/* ignore */}
+    try {
+      const r = await fetch(indexUrl);
+      if (!r.ok) throw new Error(`index fetch ${r.status}`);
 
         const raw = await r.text();
         let m: IndexMeta;
@@ -621,7 +784,8 @@ const SequenceLabeler: React.FC<{
     async (idx: number, hintOverride?: number): Promise<ImageBitmap | null> => {
       if (workerActive) return null; // handled by worker path
       if (!meta) return null;
-      const total = localFiles ? localFiles.length : files.length;
+      const usingVideo = !!videoRef.current || !!videoWorkerRef.current;
+      const total = usingVideo ? meta.count : (localFiles ? localFiles.length : files.length);
       if (idx < 0 || idx >= total) return null;
 
       const cached = cacheRef.current.get(idx);
@@ -639,7 +803,28 @@ const SequenceLabeler: React.FC<{
           const hint = (hintOverride ?? decodeScaleHintRef.current) || 1;
           const targetW = Math.max(1, Math.round(baseW * hint));
           const targetH = Math.max(1, Math.round(baseH * hint));
-          if (localFiles) {
+          if (usingVideo && videoWorkerRef.current) {
+            // Request via worker; resolve on incoming 'frame'
+            const existingReq = videoReqResolvesRef.current.get(idx);
+            if (existingReq) return null;
+            const p = new Promise<ImageBitmap | null>((resolve) => {
+              videoReqResolvesRef.current.set(idx, resolve);
+              try { videoWorkerRef.current!.postMessage({ type: 'seekFrame', index: idx }); } catch {}
+            }).finally(() => { videoReqResolvesRef.current.delete(idx); });
+            inFlightRef.current.set(idx, p);
+            return p;
+          } else if (usingVideo && videoRef.current) {
+            // legacy path (if present)
+            try {
+              const bmp = await videoRef.current.getBitmap(idx, targetW, targetH);
+              if (bmp) cacheRef.current.set(idx, bmp);
+              return bmp ?? null;
+            } catch {
+              videoErrorRef.current = 'Video decode error';
+              setRenderTick(x => x + 1);
+              return null;
+            }
+          } else if (localFiles) {
             const file = await localFiles[idx].handle.getFile();
             const bmp = await createImageBitmap(file, {
               resizeWidth: Math.max(1, targetW),
@@ -662,6 +847,10 @@ const SequenceLabeler: React.FC<{
             return bmp;
           }
         } catch {
+          if (usingVideo) {
+            videoErrorRef.current = 'Video decode error';
+            setRenderTick(x => x + 1);
+          }
           return null;
         } finally {
           inFlightRef.current.delete(idx);
@@ -676,7 +865,7 @@ const SequenceLabeler: React.FC<{
   // Prefetch around last displayed frame (strictly gated by decode cadence)
   useEffect(() => {
     if (workerActive) return; // worker handles prefetch
-    const total = localFiles ? localFiles.length : files.length;
+    const total = meta?.count ?? (localFiles ? localFiles.length : files.length);
     if (!meta || total <= 0) return;
     const base = lastDrawnRef.current.frame >= 0 ? lastDrawnRef.current.frame : frame;
     const now = performance.now();
@@ -743,12 +932,12 @@ const SequenceLabeler: React.FC<{
         lastTickRef.current = t;
 
         const { frame: f, tracks: ts, selectedIds: sel, labelSet: ls, interpolate: itp, showGhosts: ghosts, ghostAlpha: gAlpha, meta: m, scale: sc, draftRect: dr } = stateRef.current;
-        const c = viewportRef.current;
-        if (c && m) {
-          const ctx = c.getContext('2d');
-          if (ctx) {
+    const c = viewportRef.current;
+    if (c && m) {
+      const ctx = c.getContext('2d');
+      if (ctx) {
             // sample target to reduce decode thrash at very high input speeds
-            const total = (localFiles ? localFiles.length : files.length);
+            const total = (m.count) ?? (localFiles ? localFiles.length : files.length);
             const delta = Math.abs((lastDrawnRef.current.frame ?? 0) - f);
             const stride = delta > 120 ? 8 : delta > 60 ? 4 : delta > 20 ? 2 : 1;
             // Adjust decode resolution based on scrub speed
@@ -773,10 +962,11 @@ const SequenceLabeler: React.FC<{
               }
               if (!drawBmp && lastDrawnRef.current.bmp) { drawBmp = lastDrawnRef.current.bmp; drawIndex = lastDrawnRef.current.frame; }
             }
+            // Always clear background so canvas isn't blank
+            ctx.imageSmoothingEnabled = false;
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, c.width, c.height);
             if (drawBmp) {
-              ctx.imageSmoothingEnabled = false;
-              ctx.fillStyle = '#111';
-              ctx.fillRect(0, 0, c.width, c.height);
               ctx.drawImage(drawBmp, 0, 0, c.width, c.height);
               lastDrawnRef.current = { frame: drawIndex, bmp: drawBmp };
 
@@ -869,6 +1059,20 @@ const SequenceLabeler: React.FC<{
                     setRenderTick(x => x + 1);
                   });
                 }
+              }
+            } else {
+              // No frame decoded yet — draw error if video decoding failed, else a placeholder grid
+              if (videoRef.current && videoErrorRef.current) {
+                ctx.fillStyle = '#300';
+                ctx.fillRect(0, 0, c.width, 36);
+                ctx.fillStyle = '#f66';
+                ctx.font = '14px system-ui, sans-serif';
+                ctx.fillText('Video decode error — check MP4Box/WebCodecs config', 8, 22);
+              } else {
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1;
+                for (let gx = 0; gx < c.width; gx += 32) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, c.height); ctx.stroke(); }
+                for (let gy = 0; gy < c.height; gy += 32) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(c.width, gy); ctx.stroke(); }
               }
             }
           }
@@ -1000,6 +1204,45 @@ const SequenceLabeler: React.FC<{
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [playing, meta?.fps, files.length, localFiles]);
+
+  const onImportVideo = useCallback(async () => {
+    try {
+      const hasMP4 = typeof window !== 'undefined' && (window as any).MP4Box;
+      const hasWC = typeof window !== 'undefined' && 'VideoDecoder' in window;
+      if (!hasMP4 || !hasWC) {
+        alert('비디오 임포트는 MP4Box + WebCodecs가 필요합니다.');
+        return;
+      }
+      if ("showOpenFilePicker" in window) {
+        const [h] = await (window as any).showOpenFilePicker({
+          multiple: false,
+          types: [{ description: 'Video', accept: { 'video/mp4': ['.mp4'] } }]
+        });
+        if (h) {
+          await loadFromVideoFile(h as FileSystemFileHandle);
+          setNeedsImport(false);
+          return;
+        }
+      }
+    } catch {/* ignore and fallback */}
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'video/mp4';
+    input.onchange = async () => {
+      const f = input.files?.[0];
+      if (!f) return;
+      const handleLike: FileSystemFileHandle = {
+        kind: 'file',
+        name: f.name,
+        getFile: async () => f,
+        // @ts-ignore
+        isSameEntry: async () => false,
+      } as any;
+      await loadFromVideoFile(handleLike);
+      setNeedsImport(false);
+    };
+    input.click();
+  }, [loadFromVideoFile]);
 
   /** ===== Mouse (edit) ===== */
   const toImgCoords = (ev: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1550,7 +1793,7 @@ const SequenceLabeler: React.FC<{
     });
   };
 
-  const totalFrames = localFiles ? localFiles.length : files.length;
+  const totalFrames = (meta?.count ?? (localFiles ? localFiles.length : files.length));
 
   // Manual save to localStorage to guarantee persistence on demand
   const saveNow = useCallback(() => {
@@ -1592,6 +1835,7 @@ const SequenceLabeler: React.FC<{
         onTogglePresence={togglePresenceAtCurrent}
         canTogglePresence={!!selectedTracks.length}
         onImportFolder={importFolder}
+        onImportVideo={onImportVideo}
         needsImport={needsImport}
         onSave={saveNow}
         onExportJSON={exportJSON}

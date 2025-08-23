@@ -16,6 +16,7 @@ type Props = {
   onTogglePresence: () => void;
   canTogglePresence: boolean;
   onImportFolder: () => void;
+  onImportVideo: () => void;
   needsImport: boolean;
   onSave: () => void;
   onExportJSON: () => void;
@@ -37,6 +38,7 @@ const SLTopBar: React.FC<Props> = ({
   onTogglePresence,
   canTogglePresence,
   onImportFolder,
+  onImportVideo,
   needsImport,
   onSave,
   onExportJSON,
@@ -90,6 +92,7 @@ const SLTopBar: React.FC<Props> = ({
       <button onClick={onTogglePresence} disabled={!canTogglePresence}>Toggle Presence (N)</button>
 
       <button style={{ marginLeft: "auto" }} onClick={onImportFolder}>Import Folder</button>
+      <button onClick={onImportVideo} title="Import MP4 video">Import Video</button>
       {needsImport && (
         <span style={{ color: "#f66" }}>Load failed. Use Import Folder.</span>
       )}

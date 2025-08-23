@@ -48,3 +48,28 @@ export async function deleteDirHandle(key: string): Promise<void> {
     return Promise.resolve();
   });
 }
+
+// Video file handle APIs (reuse same store)
+export async function saveFileHandle(key: string, handle: FileSystemFileHandle): Promise<void> {
+  await withStore('readwrite', store => {
+    store.put(handle, key);
+    return Promise.resolve();
+  });
+}
+
+export async function loadFileHandle(key: string): Promise<FileSystemFileHandle | undefined> {
+  return withStore('readonly', store => {
+    return new Promise((resolve, reject) => {
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result as FileSystemFileHandle | undefined);
+      req.onerror = () => reject(req.error);
+    });
+  });
+}
+
+export async function deleteFileHandle(key: string): Promise<void> {
+  await withStore('readwrite', store => {
+    store.delete(key);
+    return Promise.resolve();
+  });
+}

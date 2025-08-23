@@ -29,42 +29,10 @@ export default function App() {
     if (!currentProject) return;
     const name = prompt("Task name?");
     if (!name) return;
-    if ("showDirectoryPicker" in window) {
-      try {
-        const dir: FileSystemDirectoryHandle = await (window as unknown as {
-          showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
-        }).showDirectoryPicker();
-        const t = pm.current.addTask(currentProject.id, name, dir.name, true);
-        await saveDirHandle(t.id, dir);
-        refresh();
-        setCurrentTask(t);
-        return;
-      } catch {
-        // fall through to input method
-      }
-    }
-    const input = document.createElement("input");
-    input.type = "file";
-    input.setAttribute("webkitdirectory", "true");
-    input.onchange = () => {
-      const files = input.files;
-      if (!files || !files.length) return;
-      const file = files[0] as File & { path?: string; webkitRelativePath?: string };
-      const relPath = file.webkitRelativePath ?? "";
-      const fullPath = file.path ?? "";
-      let folder = "";
-      if (fullPath) {
-        folder = fullPath.slice(0, fullPath.length - relPath.length)
-          .replace(/\\/g, "/")
-          .replace(/\/$/, "");
-      } else {
-        folder = relPath.split("/")[0] ?? "";
-      }
-      const t = pm.current.addTask(currentProject.id, name, folder);
-      refresh();
-      setCurrentTask(t);
-    };
-    input.click();
+    // Create empty task without import; user can import later inside the labeler
+    const t = pm.current.addTask(currentProject.id, name, "", false);
+    refresh();
+    setCurrentTask(t);
   };
 
   const selectProject = (id: string) => {
@@ -147,6 +115,7 @@ export default function App() {
             <ErrorBoundary>
             <div className="fade-in" style={{ height: "100%" }}>
             <SequenceLabeler
+              key={currentTask.id}
               framesBaseUrl={`${currentTask.workFolder}/frames`}
               indexUrl={`${currentTask.workFolder}/index.json`}
               taskId={currentTask.id}
