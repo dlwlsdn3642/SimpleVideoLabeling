@@ -479,8 +479,10 @@ const SequenceLabeler: React.FC<{
           (await (handle as DirHandleWithPerm).queryPermission?.({ mode: "read" })) === "granted"
         ) {
           await loadFromDir(handle);
-          setNeedsImport(false);
-          onFolderImported?.(handle.name);
+          if (!aborted) {
+            setNeedsImport(false);
+            onFolderImported?.(handle.name);
+          }
           return;
         }
       } catch {
@@ -499,7 +501,7 @@ const SequenceLabeler: React.FC<{
             contentType: r.headers.get("content-type"),
             bodyPreview: raw.slice(0, 200),
           });
-          setNeedsImport(true);
+          if (!aborted) setNeedsImport(true);
           return;
         }
         if (aborted) return;
@@ -516,15 +518,16 @@ const SequenceLabeler: React.FC<{
             ),
           );
         }
+        if (!aborted) setNeedsImport(false);
       } catch (err) {
         console.error(err);
-        setNeedsImport(true);
+        if (!aborted) setNeedsImport(true);
       }
     })();
     return () => {
       aborted = true;
     };
-  }, [indexUrl, localFiles, storagePrefix, loadFromDir, onFolderImported]);
+  }, [indexUrl, localFiles, storagePrefix, loadFromDir]);
 
   // load saved timeline height
   useEffect(() => {
