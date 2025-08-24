@@ -36,6 +36,8 @@ import {
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle, loadFileHandle, saveFileHandle } from "../utils/handles";
 import { TranstClient, blobToBase64 } from "../lib/transtClient";
+import * as media from "./modules/media";
+import * as renderer from "./modules/renderer";
 
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
@@ -101,19 +103,17 @@ const SequenceLabeler: React.FC<{
     const pendingVideoSeekRef = useRef<number | null>(null);
     const videoSeekScheduledRef = useRef<boolean>(false);
 
-    const requestVideoFrame = useCallback((idx: number, exact = false) => {
-      pendingVideoSeekRef.current = idx;
-      if (videoSeekScheduledRef.current) return;
-      videoSeekScheduledRef.current = true;
-      requestAnimationFrame(() => {
-        if (videoWorkerRef.current && pendingVideoSeekRef.current !== null) {
-          try {
-            videoWorkerRef.current.postMessage({ type: 'seekFrame', index: pendingVideoSeekRef.current, exact });
-          } catch { }
-        }
-        videoSeekScheduledRef.current = false;
-      });
-    }, []);
+    const requestVideoFrame = useCallback(
+      (idx: number, exact = false) =>
+        media.requestVideoFrame(
+          videoWorkerRef,
+          pendingVideoSeekRef,
+          videoSeekScheduledRef,
+          idx,
+          exact
+        ),
+      []
+    );
 
     const [playing, setPlaying] = useState(false);
     const [tracking, setTracking] = useState(false);
@@ -146,15 +146,7 @@ const SequenceLabeler: React.FC<{
     const finalExactTimerRef = useRef<number | null>(null);
 
     const clearViewport = useCallback(() => {
-      const c = viewportRef.current;
-      if (!c) return;
-      const ctx = c.getContext('2d');
-      if (!ctx) return;
-      ctx.save();
-      ctx.clearRect(0, 0, c.width, c.height);
-      ctx.fillStyle = '#111';
-      ctx.fillRect(0, 0, c.width, c.height);
-      ctx.restore();
+      renderer.clearViewport(viewportRef);
     }, []);
 
     // Keep decode cadence tied to targetFPS
