@@ -1,5 +1,5 @@
 import type React from "react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { Track, LabelSet } from "../types";
 import { clamp } from "../utils/geom";
 
@@ -33,13 +33,20 @@ const Timeline: React.FC<Props> = ({
   hiddenClasses,
 }) => {
   const margin = 8;
-  const innerW = Math.max(1, width - margin * 2);
-  const step = innerW / Math.max(1, total);
-  const visibleTracks = hiddenClasses
-    ? tracks.filter(t => !hiddenClasses.has(t.class_id))
-    : tracks;
-  const height = margin * 2 + rowHeight * visibleTracks.length;
-  const innerH = height - margin * 2;
+  const { innerW, step } = useMemo(() => {
+    const innerW = Math.max(1, width - margin * 2);
+    const step = innerW / Math.max(1, total);
+    return { innerW, step };
+  }, [width, total]);
+  const visibleTracks = useMemo(
+    () => (hiddenClasses ? tracks.filter((t) => !hiddenClasses.has(t.class_id)) : tracks),
+    [tracks, hiddenClasses],
+  );
+  const height = useMemo(
+    () => margin * 2 + rowHeight * visibleTracks.length,
+    [visibleTracks.length, rowHeight],
+  );
+  const innerH = useMemo(() => height - margin * 2, [height]);
   const scaleX = (f: number) => margin + f * step;
   const centerX = (f: number) => margin + (f + 0.5) * step;
 
@@ -72,10 +79,19 @@ const Timeline: React.FC<Props> = ({
       }
     }
   };
+  const hoverRafRef = useRef<number | null>(null);
   const onPointerMove = (ev: React.PointerEvent<SVGSVGElement>) => {
+    if (draggingRef.current) {
+      // While dragging, avoid hover state to reduce re-renders
+      seekFromEvent(ev);
+      return;
+    }
     const { f, trackIdx } = getPosFromEvent(ev);
-    setHovered({ f, idx: trackIdx });
-    if (draggingRef.current) seekFromEvent(ev);
+    if (hoverRafRef.current != null) cancelAnimationFrame(hoverRafRef.current);
+    hoverRafRef.current = requestAnimationFrame(() => {
+      setHovered({ f, idx: trackIdx });
+      hoverRafRef.current = null;
+    });
   };
   const onPointerUp = (ev: React.PointerEvent<SVGSVGElement>) => {
     draggingRef.current = false;
@@ -91,6 +107,72 @@ const Timeline: React.FC<Props> = ({
 
   const frameHasKF = (f: number) =>
     visibleTracks.some((t) => t.keyframes.some((k) => k.frame === f));
+
+  // Memoize heavy, frame-invariant grid and keyframe layers
+  const gridLayer = useMemo(() => (
+    <g>
+      {Array.from({ length: total }, (_, f) => (
+        <rect
+          key={`grid-${f}`}
+          x={scaleX(f)}
+          y={margin}
+          width={step}
+          height={innerH}
+          fill="none"
+          stroke="#333"
+        >
+          <title>{`Frame ${f}${frameHasKF(f) ? " (keyframe)" : ""}`}</title>
+        </rect>
+      ))}
+    </g>
+  ), [total, step, innerH]);
+
+  const keyframeLayer = useMemo(() => (
+    <g>
+      {visibleTracks.map((t, idx) => {
+        const y = margin + rowHeight * idx;
+        const color = labelSet.colors[t.class_id] || "#4ea3ff";
+        const segs: Array<[number, number]> = [];
+        const kfs = t.keyframes;
+        for (let i = 0; i < kfs.length; i++) {
+          const curr = kfs[i];
+          const nextF = i + 1 < kfs.length ? kfs[i + 1].frame : total;
+          const end = curr.absent ? curr.frame : Math.min(nextF + 1, total);
+          if (end > curr.frame) segs.push([curr.frame, end]);
+        }
+        return (
+          <g key={`static-${t.track_id}`}>
+            {segs.map(([s, e], i) => (
+              <line
+                key={`seg-${t.track_id}-${i}`}
+                x1={centerX(s)}
+                x2={centerX(e - 1)}
+                y1={y + rowHeight / 2}
+                y2={y + rowHeight / 2}
+                stroke={color}
+                strokeWidth={2}
+              />
+            ))}
+            {t.keyframes.map((k) => (
+              <circle
+                key={`${t.track_id}-kf-${k.frame}`}
+                cx={centerX(k.frame)}
+                cy={y + rowHeight / 2}
+                r={4}
+                fill={color}
+                onContextMenu={(ev) => {
+                  ev.preventDefault();
+                  onDeleteKeyframe(t.track_id, k.frame);
+                }}
+              >
+                <title>{`Frame ${k.frame}`}</title>
+              </circle>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  ), [visibleTracks, rowHeight, labelSet.colors, total]);
 
   return (
     <svg
@@ -130,32 +212,11 @@ const Timeline: React.FC<Props> = ({
         stroke="#333"
       />
 
-      {Array.from({ length: total }, (_, f) => (
-        <rect
-          key={`grid-${f}`}
-          x={scaleX(f)}
-          y={margin}
-          width={step}
-          height={innerH}
-          fill="none"
-          stroke="#333"
-        >
-          <title>{`Frame ${f}${frameHasKF(f) ? " (keyframe)" : ""}`}</title>
-        </rect>
-      ))}
+      {gridLayer}
 
       {visibleTracks.map((t, idx) => {
         const y = margin + rowHeight * idx;
-        const color = labelSet.colors[t.class_id] || "#4ea3ff";
         const selected = selectedIds?.has(t.track_id);
-        const segs: Array<[number, number]> = [];
-        const kfs = t.keyframes;
-        for (let i = 0; i < kfs.length; i++) {
-          const curr = kfs[i];
-          const nextF = i + 1 < kfs.length ? kfs[i + 1].frame : total;
-          const end = curr.absent ? curr.frame : Math.min(nextF + 1, total);
-          if (end > curr.frame) segs.push([curr.frame, end]);
-        }
         return (
           <g key={t.track_id}>
             {/* Row background */}
@@ -166,35 +227,11 @@ const Timeline: React.FC<Props> = ({
               height={rowHeight}
               fill={selected ? "rgba(78,163,255,0.12)" : "transparent"}
             />
-            {segs.map(([s, e], i) => (
-              <line
-                key={`seg-${i}`}
-                x1={centerX(s)}
-                x2={centerX(e - 1)}
-                y1={y + rowHeight / 2}
-                y2={y + rowHeight / 2}
-                stroke={color}
-                strokeWidth={2}
-              />
-            ))}
-            {t.keyframes.map((k) => (
-              <circle
-                key={k.frame}
-                cx={centerX(k.frame)}
-                cy={y + rowHeight / 2}
-                r={4}
-                fill={color}
-                onContextMenu={(ev) => {
-                  ev.preventDefault();
-                  onDeleteKeyframe(t.track_id, k.frame);
-                }}
-              >
-                <title>{`Frame ${k.frame}`}</title>
-              </circle>
-            ))}
           </g>
         );
       })}
+
+      {keyframeLayer}
 
       {/* Hovered frame highlight */}
       {hovered && hovered.idx >= 0 && hovered.idx < visibleTracks.length && (

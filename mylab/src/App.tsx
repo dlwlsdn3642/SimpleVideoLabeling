@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import SequenceLabeler from "./SequenceLabeler";
 import ProjectManager from "./lib/ProjectManager";
 import type { Project, Task } from "./types";
-import { saveDirHandle } from "./utils/handles";
 import appStyles from "./App.module.css";
 import { ErrorBoundary } from "./components";
 

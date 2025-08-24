@@ -31,9 +31,7 @@ export default class VideoSource {
   private file: File;
   private url: string | null = null;
   private meta: VideoMeta | null = null;
-  private videoEl: HTMLVideoElement | null = null;
-  private offscreen: OffscreenCanvas | null = null;
-  private ctx2d: OffscreenCanvasRenderingContext2D | null = null;
+  // Removed unused fields from earlier prototype path
 
   // WebCodecs + MP4Box
   private useCodecs = false;
@@ -171,61 +169,6 @@ export default class VideoSource {
     return metaP;
   }
 
-  private async decodeFrameViaWebCodecs(index: number, targetW: number, targetH: number): Promise<ImageBitmap | null> {
-    if (!this.meta || this.trackId == null) return null;
-    if (!this.decoder) {
-      const output: VideoFrame[] = [];
-      this.decoder = new VideoDecoder({
-        output: (frame: VideoFrame) => { output.push(frame); },
-        error: () => {}
-      });
-      const cfg: VideoDecoderConfig = this.config || { codec: 'avc1.42E01E' } as any;
-      try { this.decoder.configure(cfg); } catch { /* ignore */ }
-    }
-    if (!this.offscreen) this.offscreen = new OffscreenCanvas(Math.max(1, targetW), Math.max(1, targetH));
-    if (!this.ctx2d) this.ctx2d = this.offscreen.getContext('2d');
-    const sample = this.samples[index];
-    if (!sample) return null;
-
-    // Feed the single sample; depends on decoder supporting random access
-    try {
-      const chunk = new EncodedVideoChunk({
-        type: sample.is_sync ? 'key' : 'delta',
-        timestamp: sample.cts,
-        duration: sample.duration,
-        data: sample.data,
-      });
-      this.decoder!.decode(chunk);
-    } catch {
-      return null;
-    }
-    await this.decoder!.flush().catch(() => {});
-
-    // Draw last frame in decoder queue
-    const frame = await (async () => {
-      // @ts-ignore: access internal decoded frames via flush output queue handled above
-      const vf: VideoFrame | undefined = (this.decoder as any)?.[["[[queue]]"]]?.at?.(-1);
-      return vf as VideoFrame | undefined;
-    })();
-    // Fallback: no direct queue access, recreate by decode->output capture
-    let bmp: ImageBitmap | null = null;
-    try {
-      if (frame) {
-        bmp = await createImageBitmap(frame);
-        frame.close();
-      } else if (this.ctx2d) {
-        // draw via drawImage path (less optimal)
-      }
-    } catch {
-      bmp = null;
-    }
-    if (bmp) this.frameCache.set(index, bmp);
-    return bmp;
-  }
-
-  // ====== HTMLVideoElement fallback ======
-  // HTMLVideoElement fallback removed per project requirement (enforce MP4Box+WebCodecs)
-
   private async readSlice(offset: number, length: number): Promise<ArrayBuffer> {
     const blob = this.file.slice(offset, offset + length);
     return await blob.arrayBuffer();
@@ -276,85 +219,12 @@ export default class VideoSource {
       try { bmp = await createImageBitmap(vf, { resizeWidth: targetW, resizeHeight: targetH } as any); } catch {}
       try { vf.close(); } catch {}
     }
+    // Clean up any other frames that might have been decoded
+    for (const frame of outFrames) {
+      try { frame.close(); } catch {}
+    }
     try { decoder.close(); } catch {}
     if (bmp) this.frameCache.set(index, bmp);
     return bmp;
-  }
-
-  private async decodeAndCaptureSingle(sample: DemuxSample, targetW: number, targetH: number): Promise<ImageBitmap | null> {
-    let bmp: ImageBitmap | null = null;
-    const frames: VideoFrame[] = [];
-    try {
-      const decoder = new VideoDecoder({
-        output: (f: VideoFrame) => frames.push(f),
-        error: () => {}
-      });
-      const cfg: VideoDecoderConfig = this.config || { codec: 'avc1.42E01E' } as any;
-      try { decoder.configure(cfg); } catch {}
-      // Use last decoded frame from the main decoder flush via frames[]
-      const vf = frames.pop();
-      if (vf) {
-        bmp = await createImageBitmap(vf, { resizeWidth: targetW, resizeHeight: targetH } as any);
-        vf.close();
-      }
-      try { decoder.close(); } catch {}
-    } catch {
-      bmp = null;
-    }
-    return bmp;
-  }
-  private async getDurationSecondsSafe(): Promise<number | null> {
-    try {
-      if (this.videoEl) return this.videoEl.duration || null;
-      const tmpUrl = this.url || URL.createObjectURL(this.file);
-      const v = document.createElement('video');
-      v.preload = 'metadata';
-      v.src = tmpUrl;
-      await new Promise<void>((resolve, reject) => {
-        v.onloadedmetadata = () => resolve();
-        v.onerror = () => reject(new Error('video metadata error'));
-      });
-      const d = v.duration || null;
-      if (!this.url) { try { URL.revokeObjectURL(tmpUrl); } catch {} }
-      return d;
-    } catch {
-      return null;
-    }
-  }
-
-  private async captureViaVideoEl(index: number, targetW: number, targetH: number): Promise<ImageBitmap | null> {
-    if (!this.videoEl || !this.meta) return null;
-    const v = this.videoEl;
-    const time = index / this.meta.fps;
-    // Ensure canvas size
-    if (!this.offscreen) this.offscreen = new OffscreenCanvas(Math.max(1, targetW), Math.max(1, targetH));
-    if (!this.ctx2d) this.ctx2d = this.offscreen.getContext('2d');
-    const ctx = this.ctx2d!;
-    if ((this.offscreen!.width !== Math.max(1, targetW)) || (this.offscreen!.height !== Math.max(1, targetH))) {
-      this.offscreen!.width = Math.max(1, targetW);
-      this.offscreen!.height = Math.max(1, targetH);
-    }
-    // Seek and wait for paint
-    v.currentTime = Math.max(0, Math.min(v.duration || time, time));
-    await new Promise<void>((resolve) => {
-      const onUpdate = () => { v.removeEventListener('seeked', onUpdate); resolve(); };
-      v.addEventListener('seeked', onUpdate, { once: true });
-    });
-    ctx.drawImage(v, 0, 0, this.offscreen!.width, this.offscreen!.height);
-    try {
-      const bmp = await createImageBitmap(this.offscreen!);
-      return bmp;
-    } catch {
-      return null;
-    }
-  }
-
-  private async fileToArrayBuffer(file: File): Promise<ArrayBuffer & { fileStart?: number }> {
-    return new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(fr.result as ArrayBuffer);
-      fr.onerror = () => reject(fr.error);
-      fr.readAsArrayBuffer(file);
-    });
   }
 }
