@@ -11,6 +11,7 @@
     "test": "vitest run --pool=threads"
   },
   "dependencies": {
+    "mp4box": "^2.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },
