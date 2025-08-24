@@ -14,7 +14,9 @@ export type Action =
       delta: { dx: number; dy: number };
     } & Meta)
   | ({ type: "TOGGLE_PRESENCE"; trackId: string; f: number } & Meta)
-  | ({ type: "APPLY_TRACKS"; payload: TracksState } & Meta);
+  | ({ type: "APPLY_TRACKS"; payload: TracksState } & Meta)
+  | ({ type: "UNDO" } & Meta)
+  | ({ type: "REDO" } & Meta);
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
@@ -67,7 +69,7 @@ export function reduce(state: TracksState, action: Action): TracksState {
                   k.bbox_xywh[1] + delta.dy,
                   k.bbox_xywh[2],
                   k.bbox_xywh[3],
-                ],
+                ] as [number, number, number, number],
               }
             : k,
         );

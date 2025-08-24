@@ -165,8 +165,6 @@ const SequenceLabeler: React.FC<{
   const videoErrorRef = useRef<string | null>(null);
   // Track fast scrubbing activity to modulate prefetch/upgrade behavior
   const scrubActiveRef = useRef(false);
-  const scrubTimerRef = useRef<number | null>(null);
-  const finalExactTimerRef = useRef<number | null>(null);
 
   const clearViewport = useCallback(() => {
     const c = viewportRef.current;
@@ -336,7 +334,7 @@ const SequenceLabeler: React.FC<{
     ),
   });
   const [availableSets, setAvailableSets] = useState<LabelSet[]>([]);
-  const history = useHistory<TracksState>([]);
+  const history = useHistory([]);
   const tracks = history.present;
   const { undo, redo } = history;
   const [hiddenClasses, setHiddenClasses] = useState<Set<number>>(new Set());

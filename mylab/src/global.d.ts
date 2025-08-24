@@ -9,3 +9,8 @@ declare global {
     MP4Box?: any;
   }
 }
+
+declare module 'mp4box' {
+  export function createFile(...args: any[]): any;
+  export const DataStream: any;
+}

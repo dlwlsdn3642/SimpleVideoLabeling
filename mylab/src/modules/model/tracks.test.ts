@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { reduce, TracksState } from "./tracks";
+import { reduce } from "./tracks";
+import type { TracksState } from "./tracks";
 import { createHistory } from "./history";
 
 const baseTrack = { track_id: "t1", class_id: 0, keyframes: [] as any[] };
