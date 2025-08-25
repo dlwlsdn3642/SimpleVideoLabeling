@@ -647,12 +647,23 @@ const SequenceLabeler: React.FC<{
                 frameIdx: number;
                 bitmap: ImageBitmap;
               };
-              // 항상 최신 프레임을 보관하고 캐시에 넣는다.
               cacheRef.current.set(frameIdx, bitmap);
               latestVideoFrameRef.current = { idx: frameIdx, bmp: bitmap };
-              // 비디오 재생 중에는 워커가 디코딩한 프레임을 타임라인 기준으로 사용한다.
               if (playingRef.current) {
                 setFrame((prev) => (frameIdx >= prev ? frameIdx : prev));
+              }
+              break;
+            }
+            case "frameChunk": {
+              const { frames } = m as {
+                frames: { frameIdx: number; bitmap: ImageBitmap }[];
+              };
+              for (const { frameIdx, bitmap } of frames) {
+                cacheRef.current.set(frameIdx, bitmap);
+                latestVideoFrameRef.current = { idx: frameIdx, bmp: bitmap };
+                if (playingRef.current) {
+                  setFrame((prev) => (frameIdx >= prev ? frameIdx : prev));
+                }
               }
               break;
             }

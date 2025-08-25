@@ -45,6 +45,19 @@ let playing = false;
 let playJobId = 0;
 let playStartWall = 0;
 let playStartPresentIdx = 0;
+// Post multiple decoded bitmaps together to reduce message overhead
+const POST_CHUNK = 4;
+let pendingFrames: { idx: number; bmp: ImageBitmap }[] = [];
+
+function flushPending() {
+  if (!pendingFrames.length) return;
+  const payload = pendingFrames.map((p) => ({ frameIdx: p.idx, bitmap: p.bmp }));
+  (self as any).postMessage(
+    { type: "frameChunk", frames: payload },
+    payload.map((p) => p.bitmap),
+  );
+  pendingFrames = [];
+}
 function isKeyRequiredError(e: any): boolean {
   const msg = String(e?.message || e || "").toLowerCase();
   return msg.includes('key frame is required');
@@ -60,6 +73,7 @@ function findPrevKey(idx: number) {
 }
 
 function cancelAndBumpJob() {
+  flushPending();
   jobId++;
 }
 
@@ -121,7 +135,10 @@ function onFrame(frame: VideoFrame) {
     .then((bmp) => {
       lastPostedPresentIdx = pIdx;
       lastPostedIsPreview = previewScale < 1;
-      (self as any).postMessage({ type: "frame", bitmap: bmp, frameIdx: pIdx }, [bmp]);
+      pendingFrames.push({ idx: pIdx, bmp });
+      if (!playing || pendingFrames.length >= POST_CHUNK) {
+        flushPending();
+      }
     })
     .catch(() => {})
     .finally(() => {
@@ -446,24 +463,36 @@ self.onmessage = async (ev: MessageEvent) => {
     playStartWall = performance.now();
     playStartPresentIdx = startF;
 
-    // Stream forward frame-by-frame
+    // Stream forward in small byte chunks to reduce request overhead
+    const PLAY_CHUNK_FRAMES = 8;
     (async () => {
       let i = targetDecodeIdx + 1;
       while (playing && myPlay === playJobId && i < samples.length) {
+        const start = i;
+        const end = Math.min(samples.length, start + PLAY_CHUNK_FRAMES);
         try {
-          const s = samples[i];
-          const ab = await requestSpan(s.off, s.off + s.size - 1);
+          const startByte = samples[start].off;
+          const endByte = samples[end - 1].off + samples[end - 1].size - 1;
+          const ab = await requestSpan(startByte, endByte);
           if (!playing || myPlay !== playJobId) return;
-          const view = new Uint8Array(ab);
-          const chunk = new EncodedVideoChunk({ type: s.key ? 'key' : 'delta', timestamp: tsUs(s.pts), data: view });
-          // Backpressure: if queue is large, yield to decoder
-          if (decoder.decodeQueueSize > 3) await new Promise(r => setTimeout(r, 0));
-          if (!playing || myPlay !== playJobId) return;
-          decoder.decode(chunk);
+          const base = startByte;
+          const u8 = new Uint8Array(ab);
+          for (let j = start; j < end; j++) {
+            if (!playing || myPlay !== playJobId) return;
+            const s = samples[j];
+            const off = s.off - base;
+            const view = u8.subarray(off, off + s.size);
+            const chunk = new EncodedVideoChunk({ type: s.key ? 'key' : 'delta', timestamp: tsUs(s.pts), data: view });
+            if (decoder.decodeQueueSize > 3) await new Promise((r) => setTimeout(r, 0));
+            if (!playing || myPlay !== playJobId) return;
+            decoder.decode(chunk);
+            const now = performance.now();
+            if (now < nextDeadline) await new Promise((r) => setTimeout(r, Math.max(0, nextDeadline - now)));
+            nextDeadline += period;
+          }
         } catch (e: any) {
           if (isKeyRequiredError(e)) {
-            // Find previous key, reset, and continue from there
-            const k = findPrevKey(i);
+            const k = findPrevKey(start);
             try {
               decoder.reset();
               if (lastDecoderConfig) decoder.configure(lastDecoderConfig);
@@ -471,18 +500,12 @@ self.onmessage = async (ev: MessageEvent) => {
               if (!playing || myPlay !== playJobId) return;
               const keyChunk = new EncodedVideoChunk({ type: 'key', timestamp: tsUs(samples[k].pts), data: new Uint8Array(ab2) });
               decoder.decode(keyChunk);
-              i = k + 1; // resume after key
+              i = k + 1;
               continue;
             } catch {}
           }
         }
-        // Pace feeding chunks to roughly match target FPS
-        const now = performance.now();
-        if (now < nextDeadline) {
-          await new Promise(r => setTimeout(r, Math.max(0, nextDeadline - now)));
-        }
-        nextDeadline += period;
-        i++;
+        i = end;
       }
     })();
     return;
