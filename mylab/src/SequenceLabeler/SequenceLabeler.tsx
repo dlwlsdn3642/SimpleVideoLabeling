@@ -9,6 +9,7 @@ import React, {
 import { DEFAULT_SCHEMA, DEFAULT_VERSION } from "../constants";
 import LRUFrames from "../lib/LRUFrames";
 import VideoSource from "../lib/VideoSource";
+import WebGLRenderer from "../lib/WebGLRenderer";
 import { ShortcutModal } from "../components";
 import styles from "./SequenceLabeler.module.css";
 import SLTopBar from "./SLTopBar";
@@ -35,7 +36,11 @@ import {
 } from "../utils/geom";
 import { eventToKeyString, normalizeKeyString } from "../utils/keys";
 import { loadDirHandle, saveDirHandle, loadFileHandle, saveFileHandle } from "../utils/handles";
-import { TranstClient, blobToBase64 } from "../lib/transtClient";
+import { TranstClient } from "../lib/transtClient";
+import { ensureKFAt } from "../utils/tracks";
+import { useTimelineSeek } from "./hooks/useTimelineSeek";
+import { useExports } from "./hooks/useExports";
+import { useTranstTracking } from "./hooks/useTranstTracking";
 
 /* Workspace (Viewport, RightPanel, Timeline) with TopBar */
 
@@ -85,6 +90,8 @@ const SequenceLabeler: React.FC<{
     const [frame, setFrame] = useState(0);
     const [scale, setScale] = useState(1);
     const viewportRef = useRef<HTMLCanvasElement | null>(null);
+    const webglRef = useRef<WebGLRenderer | null>(null);
+    const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const workerRef = useRef<Worker | null>(null);
     const offscreenTransferredRef = useRef(false);
     const [workerActive, setWorkerActive] = useState(false);
@@ -116,10 +123,10 @@ const SequenceLabeler: React.FC<{
     }, []);
 
     const [playing, setPlaying] = useState(false);
-    const [tracking, setTracking] = useState(false);
+    const playingRef = useRef(false);
+    useEffect(() => { playingRef.current = playing; }, [playing]);
     const clientRef = useRef<TranstClient | null>(null);
     const sessionIdRef = useRef<string | null>(null);
-    const abortRef = useRef<{ active: boolean; reason?: string }>({ active: false });
     // Remember last successfully drawn bitmap to avoid blanks
     const lastDrawnRef = useRef<{ frame: number; bmp: ImageBitmap | null }>({ frame: -1, bmp: null });
 
@@ -142,8 +149,6 @@ const SequenceLabeler: React.FC<{
     const videoErrorRef = useRef<string | null>(null);
     // Track fast scrubbing activity to modulate prefetch/upgrade behavior
     const scrubActiveRef = useRef(false);
-    const scrubTimerRef = useRef<number | null>(null);
-    const finalExactTimerRef = useRef<number | null>(null);
 
     const clearViewport = useCallback(() => {
       const c = viewportRef.current;
@@ -526,11 +531,12 @@ const SequenceLabeler: React.FC<{
               break;
             case 'frame': {
               const { frameIdx, bitmap } = m as { frameIdx: number; bitmap: ImageBitmap };
-              // 언제나 캐시엔 넣는다 (정밀 탐색이 캐시에서 곧 꺼내 그릴 수 있게)
+              // 항상 최신 프레임을 보관하고 캐시에 넣는다.
               cacheRef.current.set(frameIdx, bitmap);
-              // 프리뷰는 스크럽(드래그) 중에만 허용. 단일 스텝에선 금지.
-              if (scrubActiveRef.current || frameIdx === currentFrameRef.current) {
-                latestVideoFrameRef.current = { idx: frameIdx, bmp: bitmap };
+              latestVideoFrameRef.current = { idx: frameIdx, bmp: bitmap };
+              // 비디오 재생 중에는 워커가 디코딩한 프레임을 타임라인 기준으로 사용한다.
+              if (playingRef.current) {
+                setFrame((prev) => (frameIdx >= prev ? frameIdx : prev));
               }
               break;
             }
@@ -875,6 +881,16 @@ const SequenceLabeler: React.FC<{
       const H = Math.round(meta.height * scale);
       if (c.width !== W) c.width = W;
       if (c.height !== H) c.height = H;
+      // Resize offscreen overlay (for WebGL compositing)
+      if (!overlayCanvasRef.current) overlayCanvasRef.current = document.createElement('canvas');
+      const ov = overlayCanvasRef.current;
+      if (ov.width !== W) ov.width = W;
+      if (ov.height !== H) ov.height = H;
+      // Init WebGL renderer if available
+      if (!webglRef.current) {
+        try { webglRef.current = new WebGLRenderer(c); } catch { webglRef.current = null; }
+      }
+      try { webglRef.current?.resize(W, H); } catch {}
     }, [meta, scale, workerActive]);
 
     /** ===== Drawing (persistent RAF loop, ~60 FPS) ===== */
@@ -926,8 +942,9 @@ const SequenceLabeler: React.FC<{
         const c = viewportRef.current;
         if (!c || !m) return;
 
-        const ctx = c.getContext('2d');
-        if (!ctx) return;
+        const useWebGL = !!webglRef.current;
+        const ctx = useWebGL ? null : c.getContext('2d');
+        if (!useWebGL && !ctx) return;
 
         const total = m.count;
         const usingVideo = !!videoWorkerRef.current;
@@ -944,8 +961,8 @@ const SequenceLabeler: React.FC<{
             lastDecodeReqRef.current = t;
             void getImage(f);
           }
-          // Prefer the latest worker-delivered bitmap as a live preview
-          if (!drawBmp && scrubActiveRef.current && latestVideoFrameRef.current) {
+          // For video, use worker-delivered bitmap only if it matches the logical frame
+          if (!drawBmp && usingVideo && latestVideoFrameRef.current && latestVideoFrameRef.current.idx === f) {
             drawBmp = latestVideoFrameRef.current.bmp;
             drawIndex = latestVideoFrameRef.current.idx;
           }
@@ -958,13 +975,25 @@ const SequenceLabeler: React.FC<{
 
         // Always draw at the cadence to keep UI responsive during scrubs
 
-        ctx.imageSmoothingEnabled = false;
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0, 0, c.width, c.height);
+        if (!useWebGL && ctx) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.fillStyle = '#111';
+          ctx.fillRect(0, 0, c.width, c.height);
+        }
 
         if (drawBmp) {
           try {
-            ctx.drawImage(drawBmp, 0, 0, c.width, c.height);
+            if (useWebGL) {
+              // Composite overlays via offscreen 2D canvas
+              const ov = overlayCanvasRef.current!;
+              const octx = ov.getContext('2d')!;
+              octx.clearRect(0, 0, ov.width, ov.height);
+              // overlays drawn later into octx
+              // Draw base now; overlays after computing below
+              // We'll defer actual draw until after overlay drawing
+            } else if (ctx) {
+              ctx.drawImage(drawBmp, 0, 0, c.width, c.height);
+            }
           } catch (e: any) {
             // If the image was detached/closed, drop it from cache and skip this frame
             if (String(e?.name || e).includes('InvalidStateError') || String(e).includes('detached')) {
@@ -982,68 +1011,87 @@ const SequenceLabeler: React.FC<{
             lastDrawnRef.current = { frame: drawIndex, bmp: drawBmp };
           }
 
-          const drawRect = (r: RectPX, color = '#00e5ff', alpha = 1, dashed = false) => {
-            const x = r.x * sc, y = r.y * sc, w = r.w * sc, h = r.h * sc;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.setLineDash(dashed ? [6, 6] : []);
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = color;
-            ctx.strokeRect(x, y, w, h);
-            const hs = 6;
-            ctx.fillStyle = color;
-            const dots = [[x, y], [x + w, y], [x, y + h], [x + w, y + h], [x + w / 2, y], [x + w / 2, y + h], [x, y + h / 2], [x + w, y + h / 2]] as const;
-            for (const [dx, dy] of dots) ctx.fillRect(dx - hs, dy - hs, hs * 2, hs * 2);
-            ctx.restore();
-          };
+          // 2D draw helper removed; overlay path uses drawOverlayCtx() which accepts an explicit context
 
-          if (ghosts && gAlpha > 0) {
+          const drawOverlayCtx = (ctx2: CanvasRenderingContext2D) => {
+            const drawRect2 = (r: RectPX, color = '#00e5ff', alpha = 1, dashed = false) => {
+              const x = r.x * sc, y = r.y * sc, w = r.w * sc, h = r.h * sc;
+              ctx2.save();
+              ctx2.globalAlpha = alpha;
+              ctx2.setLineDash(dashed ? [6, 6] : []);
+              ctx2.lineWidth = 2;
+              ctx2.strokeStyle = color;
+              ctx2.strokeRect(x, y, w, h);
+              const hs = 6;
+              ctx2.fillStyle = color;
+              const dots = [[x, y], [x + w, y], [x, y + h], [x + w, y + h], [x + w / 2, y], [x + w / 2, y + h], [x, y + h / 2], [x + w, y + h / 2]] as const;
+              for (const [dx, dy] of dots) ctx2.fillRect(dx - hs, dy - hs, hs * 2, hs * 2);
+              ctx2.restore();
+            };
+            if (ghosts && gAlpha > 0) {
+              for (const tck of ts) {
+                if (tck.hidden) continue;
+                const color = ls.colors[tck.class_id] || '#66d9ef';
+                const prev = rectAtFrame(tck, f - 1, itp);
+                if (prev) drawRect2(prev, color, gAlpha, true);
+                const next = rectAtFrame(tck, f + 1, itp);
+                if (next) drawRect2(next, color, gAlpha, true);
+              }
+            }
             for (const tck of ts) {
               if (tck.hidden) continue;
+              const r = rectAtFrame(tck, f, itp);
+              if (!r) continue;
               const color = ls.colors[tck.class_id] || '#66d9ef';
-              const prev = rectAtFrame(tck, f - 1, itp);
-              if (prev) drawRect(prev, color, gAlpha, true);
-              const next = rectAtFrame(tck, f + 1, itp);
-              if (next) drawRect(next, color, gAlpha, true);
+              const isSel = sel.has(tck.track_id);
+              drawRect2(r, color, isSel ? 1 : 0.7, false);
+              ctx2.save();
+              const cls = ls.classes[tck.class_id] ?? tck.class_id;
+              const tag = `${cls}${tck.name ? ` (${tck.name})` : ''}`;
+              ctx2.font = '12px monospace';
+              const x = r.x * sc, y = r.y * sc, w = ctx2.measureText(tag).width + 8;
+              ctx2.fillStyle = color;
+              ctx2.globalAlpha = 0.5;
+              ctx2.fillRect(x, y - 18, w, 18);
+              ctx2.globalAlpha = 1;
+              ctx2.fillStyle = '#fff';
+              ctx2.fillText(tag, x + 4, y - 5);
+              ctx2.restore();
             }
-          }
+            if (dragRef.current.creating && dr) {
+              const x = dr.x * sc, y = dr.y * sc, w = dr.w * sc, h = dr.h * sc;
+              ctx2.save();
+              ctx2.setLineDash([4, 4]);
+              ctx2.lineWidth = 1.5;
+              ctx2.strokeStyle = '#fff';
+              ctx2.strokeRect(x, y, w, h);
+              const label = `${Math.round(dr.w)}×${Math.round(dr.h)}`;
+              ctx2.font = '12px monospace';
+              const tw = ctx2.measureText(label).width + 6;
+              const th = 16;
+              ctx2.fillStyle = 'rgba(0,0,0,0.6)';
+              ctx2.fillRect(x + w - tw, y + h + 4, tw, th);
+              ctx2.fillStyle = '#fff';
+              ctx2.fillText(label, x + w - tw + 3, y + h + 16);
+              ctx2.restore();
+            }
+          };
 
-          for (const tck of ts) {
-            if (tck.hidden) continue;
-            const r = rectAtFrame(tck, f, itp);
-            if (!r) continue;
-            const color = ls.colors[tck.class_id] || '#66d9ef';
-            const isSel = sel.has(tck.track_id);
-            drawRect(r, color, isSel ? 1 : 0.7, false);
-            ctx.save();
-            const cls = ls.classes[tck.class_id] ?? tck.class_id;
-            const tag = `${cls}${tck.name ? ` (${tck.name})` : ''}`;
-            ctx.font = '12px monospace';
-            const x = r.x * sc, y = r.y * sc, w = ctx.measureText(tag).width + 8;
-            ctx.fillStyle = color;
-            ctx.globalAlpha = 0.5;
-            ctx.fillRect(x, y - 18, w, 18);
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = '#fff';
-            ctx.fillText(tag, x + 4, y - 5);
-            ctx.restore();
-          }
-          if (dragRef.current.creating && dr) {
-            const x = dr.x * sc, y = dr.y * sc, w = dr.w * sc, h = dr.h * sc;
-            ctx.save();
-            ctx.setLineDash([4, 4]);
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = '#fff';
-            ctx.strokeRect(x, y, w, h);
-            const label = `${Math.round(dr.w)}×${Math.round(dr.h)}`;
-            ctx.font = '12px monospace';
-            const tw = ctx.measureText(label).width + 6;
-            const th = 16;
-            ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.fillRect(x + w - tw, y + h + 4, tw, th);
-            ctx.fillStyle = '#fff';
-            ctx.fillText(label, x + w - tw + 3, y + h + 16);
-            ctx.restore();
+          if (useWebGL) {
+            const ov = overlayCanvasRef.current!;
+            const octx = ov.getContext('2d')!;
+            drawOverlayCtx(octx);
+            try {
+              webglRef.current!.draw(drawBmp, ov);
+            } catch (e) {
+              // fallback to 2D if WebGL context lost
+              webglRef.current = null;
+              const ctx2d = c.getContext('2d');
+              if (ctx2d) ctx2d.drawImage(drawBmp, 0, 0, c.width, c.height);
+              drawOverlayCtx(ctx2d!);
+            }
+          } else {
+            drawOverlayCtx(ctx!);
           }
 
           // Prefetch logic integrated into the render loop (skip during fast scrubs and for video)
@@ -1077,17 +1125,19 @@ const SequenceLabeler: React.FC<{
           }
         } else {
           // Draw placeholder content if no image is available
-          if (videoWorkerRef.current && videoErrorRef.current) {
+          if (!useWebGL && videoWorkerRef.current && videoErrorRef.current && ctx) {
             ctx.fillStyle = '#300';
             ctx.fillRect(0, 0, c.width, 36);
             ctx.fillStyle = '#f66';
             ctx.font = '14px system-ui, sans-serif';
             ctx.fillText(videoErrorRef.current, 8, 22);
           } else {
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 1;
-            for (let gx = 0; gx < c.width; gx += 32) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, c.height); ctx.stroke(); }
-            for (let gy = 0; gy < c.height; gy += 32) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(c.width, gy); ctx.stroke(); }
+            if (!useWebGL && ctx) {
+              ctx.strokeStyle = '#333';
+              ctx.lineWidth = 1;
+              for (let gx = 0; gx < c.width; gx += 32) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, c.height); ctx.stroke(); }
+              for (let gy = 0; gy < c.height; gy += 32) { ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(c.width, gy); ctx.stroke(); }
+            }
           }
         }
 
@@ -1110,11 +1160,13 @@ const SequenceLabeler: React.FC<{
     /** ===== Playback ===== */
     useEffect(() => {
       if (!playing) return;
+      // 비디오 워커가 활성화되어 있으면 워커가 프레임 진행을 주도하므로 여기서는 스킵
+      if (videoWorkerRef.current) return;
       let raf = 0;
       let last = performance.now();
-      const fps = meta?.fps ?? 30;
+      const fps = targetFPS > 0 ? targetFPS : (meta?.fps ?? 30);
       const dur = 1000 / fps;
-      const total = localFiles ? localFiles.length : files.length;
+      const total = meta?.count ?? (localFiles ? localFiles.length : files.length);
       const loop = () => {
         const now = performance.now();
         if (now - last >= dur) {
@@ -1125,14 +1177,25 @@ const SequenceLabeler: React.FC<{
       };
       raf = requestAnimationFrame(loop);
       return () => cancelAnimationFrame(raf);
-    }, [playing, meta?.fps, files.length, localFiles]);
+    }, [playing, targetFPS, meta?.fps, meta?.count, files.length, localFiles]);
 
     useEffect(() => {
       if (!videoWorkerRef.current) return;
-      requestVideoFrame(frame, true);
-    }, [frame, requestVideoFrame]);
+      if (!playing) requestVideoFrame(frame, true);
+    }, [frame, requestVideoFrame, playing]);
+
+    // Inform video worker about play/pause for smoother sequential decode
+    useEffect(() => {
+      const vw = videoWorkerRef.current;
+      if (!vw) return;
+      try {
+        if (playing) vw.postMessage({ type: 'play', index: frame, fps: targetFPS > 0 ? targetFPS : (meta?.fps ?? 30), scale });
+        else vw.postMessage({ type: 'pause' });
+      } catch {}
+    }, [playing, frame, videoWorkerRef, meta?.fps, targetFPS, scale]);
 
     const onImportVideo = useCallback(async () => {
+      // Delegate to existing video import logic in this component
       try {
         const hasMP4 = typeof window !== 'undefined' && (window as any).MP4Box;
         const hasWC = typeof window !== 'undefined' && 'VideoDecoder' in window;
@@ -1141,10 +1204,7 @@ const SequenceLabeler: React.FC<{
           return;
         }
         if ("showOpenFilePicker" in window) {
-          const [h] = await (window as any).showOpenFilePicker({
-            multiple: false,
-            types: [{ description: 'Video', accept: { 'video/mp4': ['.mp4'] } }]
-          });
+          const [h] = await (window as any).showOpenFilePicker({ multiple: false, types: [{ description: 'Video', accept: { 'video/mp4': ['.mp4'] } }] });
           if (h) {
             await loadFromVideoFile(h as FileSystemFileHandle);
             setNeedsImport(false);
@@ -1158,13 +1218,7 @@ const SequenceLabeler: React.FC<{
       input.onchange = async () => {
         const f = input.files?.[0];
         if (!f) return;
-        const handleLike: FileSystemFileHandle = {
-          kind: 'file',
-          name: f.name,
-          getFile: async () => f,
-          // @ts-ignore
-          isSameEntry: async () => false,
-        } as any;
+        const handleLike: FileSystemFileHandle = { kind: 'file', name: f.name, getFile: async () => f } as any;
         await loadFromVideoFile(handleLike);
         setNeedsImport(false);
       };
@@ -1179,20 +1233,7 @@ const SequenceLabeler: React.FC<{
         my: (ev.clientY - rect.top) / scale,
       };
     };
-    function ensureKFAt(t: Track, f: number, r: RectPX): Track {
-      const kfs = [...t.keyframes];
-      const idx = kfs.findIndex((k) => k.frame === f);
-      const kf = {
-        frame: f,
-        bbox_xywh: [r.x, r.y, r.w, r.h] as [number, number, number, number],
-      };
-      if (idx >= 0) kfs[idx] = { ...kf, absent: kfs[idx].absent };
-      else {
-        kfs.push(kf);
-        kfs.sort((a, b) => a.frame - b.frame);
-      }
-      return { ...t, keyframes: kfs };
-    }
+    // ensureKFAt moved to utils/tracks
     const [curClass, setCurClass] = useState(0);
 
     const onMouseDown = (ev: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1498,201 +1539,21 @@ const SequenceLabeler: React.FC<{
       );
     }, [selectedTracks, selectedIds, frame, applyTracks]);
 
-    /** ===== Transt Tracking integration ===== */
-    async function getFrameBlobAt(idx: number): Promise<Blob | null> {
-      try {
-        if (localFiles) {
-          const file = await localFiles[idx].handle.getFile();
-          return file;
-        } else {
-          const url = `${framesBaseUrl}/${files[idx]}`;
-          const res = await fetch(url, { cache: 'force-cache' });
-          if (!res.ok) return null;
-          return await res.blob();
-        }
-      } catch {
-        return null;
-      }
-    }
-
-    function isBBoxRelative(b: [number, number, number, number]): boolean {
-      const mx = Math.max(Math.abs(b[0]), Math.abs(b[1]), Math.abs(b[2]), Math.abs(b[3]));
-      return mx <= 1.5; // tolerate tiny float error
-    }
-
-    async function ensureSession(): Promise<string> {
-      if (!clientRef.current) clientRef.current = new TranstClient();
-      if (sessionIdRef.current) return sessionIdRef.current;
-      const resp = await clientRef.current.createSession();
-      sessionIdRef.current = resp.session_id;
-      return resp.session_id;
-    }
-
-    function attachAbortListeners() {
-      abortRef.current = { active: false };
-      const onAbort = () => { abortRef.current.active = true; };
-      const onKey = (e: KeyboardEvent) => {
-        // Any navigation or play key cancels
-        const keys = new Set([
-          'ArrowLeft', 'ArrowRight', 'Shift', ' ', 'Space', 'Home', 'End', 'PageUp', 'PageDown'
-        ]);
-        if (keys.has(e.key)) abortRef.current.active = true;
-      };
-      window.addEventListener('mousedown', onAbort, { once: false });
-      window.addEventListener('wheel', onAbort, { once: false });
-      window.addEventListener('keydown', onKey, { once: false });
-      return () => {
-        window.removeEventListener('mousedown', onAbort);
-        window.removeEventListener('wheel', onAbort);
-        window.removeEventListener('keydown', onKey);
-      };
-    }
-
-    async function startTracking(trackOverride?: Track) {
-      if (tracking) return;
-      if (!meta) return;
-      const sel = trackOverride ?? tracks.find((t) => selectedIds.has(t.track_id));
-      if (!sel || sel.hidden) return;
-      const curRect = rectAtFrame(sel, frame, interpolate);
-      if (!curRect) return; // no rect or presence hidden
-
-      setPlaying(false);
-      setTracking(true);
-      const detach = attachAbortListeners();
-      try {
-        // If no keyframe exactly at current frame, add one
-        const hasKFHere = sel.keyframes.some((k) => k.frame === frame && !k.absent);
-        if (!hasKFHere) {
-          addKeyframe(sel.track_id, frame);
-        }
-
-        // Prepare init payload
-        const sId = await ensureSession();
-        const blob0 = await getFrameBlobAt(frame);
-        if (!blob0) throw new Error('frame blob unavailable');
-        const img_b64_0 = await blobToBase64(blob0);
-        const bbox0: [number, number, number, number] = [curRect.x, curRect.y, curRect.w, curRect.h];
-        if (!clientRef.current) clientRef.current = new TranstClient();
-        const initResp = await clientRef.current.init(sId, img_b64_0, bbox0, sel.transt_target_id);
-
-        // Persist target_id on track
-        const targetId = initResp.target_id;
-        applyTracks((ts) => ts.map((t) => t.track_id === sel.track_id ? { ...t, transt_target_id: targetId } : t), true);
-
-        // Iterate forward and update until last frame or abort
-        for (let f = frame + 1; f < (localFiles ? localFiles.length : files.length); f++) {
-          if (abortRef.current.active) break;
-          const blob = await getFrameBlobAt(f);
-          if (!blob) break;
-          const b64 = await blobToBase64(blob);
-          const up = await clientRef.current.update(sId, targetId, b64);
-          let [x, y, w, h] = up.bbox_xywh as [number, number, number, number];
-          if (isBBoxRelative(up.bbox_xywh)) {
-            x *= meta.width; y *= meta.height; w *= meta.width; h *= meta.height;
-          }
-          // Clamp
-          const rx = clamp(x, 0, Math.max(0, meta.width - 1));
-          const ry = clamp(y, 0, Math.max(0, meta.height - 1));
-          const rw = clamp(w, 1, meta.width - rx);
-          const rh = clamp(h, 1, meta.height - ry);
-          // Save keyframe
-          applyTracks((ts) => ts.map((t) => t.track_id === sel.track_id ? ensureKFAt(t, f, { x: rx, y: ry, w: rw, h: rh }) : t), true);
-          setFrame(f);
-        }
-
-        // Always drop target when finished
-        try { await clientRef.current.dropTarget(sId, initResp.target_id); } catch { }
-      } catch (err) {
-        console.error('tracking failed', err);
-        try {
-          if (clientRef.current && sessionIdRef.current && (tracks.find(t => selectedIds.has(t.track_id))?.transt_target_id)) {
-            await clientRef.current.dropTarget(sessionIdRef.current, tracks.find(t => selectedIds.has(t.track_id))!.transt_target_id!);
-          }
-        } catch { }
-      } finally {
-        detach();
-        setTracking(false);
-        abortRef.current.active = false;
-      }
-    }
+    /** ===== Transt Tracking integration: moved to hook ===== */
+    const { startTracking, canTrackAtFrame } = useTranstTracking({
+      meta,
+      frame,
+      files,
+      localFiles,
+      tracks,
+      selectedIds,
+      interpolate,
+      applyTracks,
+      setFrame,
+    });
 
     /** ===== Export ===== */
-    function exportJSON() {
-      if (!meta) return;
-      const total = localFiles ? localFiles.length : files.length;
-      const out = {
-        schema: DEFAULT_SCHEMA,
-        version: DEFAULT_VERSION,
-        meta: {
-          width: meta.width,
-          height: meta.height,
-          fps: meta.fps ?? 30,
-          count: total,
-        },
-        label_set: labelSet,
-        files: localFiles ? localFiles.map((f) => f.name) : files,
-        tracks: tracks.map((t) => ({
-          track_id: t.track_id,
-          class_id: t.class_id,
-          name: t.name,
-          keyframes: t.keyframes.map((k) => ({
-            frame: k.frame,
-            bbox_xywh: k.bbox_xywh,
-            ...(k.absent ? { absent: true } : {}),
-          })),
-        })),
-      };
-      const blob = new Blob([JSON.stringify(out, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "labels_v1.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    async function exportYOLO() {
-      if (!meta) return;
-      if (!("showDirectoryPicker" in window)) {
-        alert("Chromium 계열 브라우저에서 사용하세요.");
-        return;
-      }
-      const dir: FileSystemDirectoryHandle = await (
-        window as unknown as {
-          showDirectoryPicker: (opts: {
-            id: string;
-          }) => Promise<FileSystemDirectoryHandle>;
-        }
-      ).showDirectoryPicker({ id: "yolo-export" });
-      const total = localFiles ? localFiles.length : files.length;
-      const names = localFiles ? localFiles.map((f) => f.name) : files;
-
-      const perFrame: string[][] = Array.from({ length: total }, () => []);
-      for (const t of tracks) {
-        for (let f = 0; f < total; f++) {
-          const r = rectAtFrame(t, f, interpolate);
-          if (!r) continue;
-          const cx = (r.x + r.w / 2) / meta.width;
-          const cy = (r.y + r.h / 2) / meta.height;
-          const ww = r.w / meta.width;
-          const hh = r.h / meta.height;
-          perFrame[f].push(
-            `${t.class_id} ${cx.toFixed(6)} ${cy.toFixed(6)} ${ww.toFixed(6)} ${hh.toFixed(6)}`,
-          );
-        }
-      }
-      for (let i = 0; i < total; i++) {
-        if (!perFrame[i].length) continue;
-        const base = names[i].replace(/\.[^.]+$/, "");
-        const handle = await dir.getFileHandle(`${base}.txt`, { create: true });
-        const w = await handle.createWritable();
-        await w.write(perFrame[i].join("\n") + "\n");
-        await w.close();
-      }
-      alert("YOLO 내보내기 완료");
-    }
+    // exportJSON/exportYOLO moved to useExports
 
     async function importFolder() {
       if (!("showDirectoryPicker" in window)) {
@@ -1701,9 +1562,7 @@ const SequenceLabeler: React.FC<{
       }
       const dir: FileSystemDirectoryHandle = await (
         window as unknown as {
-          showDirectoryPicker: (opts: {
-            id: string;
-          }) => Promise<FileSystemDirectoryHandle>;
+          showDirectoryPicker: (opts: { id: string }) => Promise<FileSystemDirectoryHandle>;
         }
       ).showDirectoryPicker({ id: storagePrefix });
       await loadFromDir(dir);
@@ -1713,74 +1572,21 @@ const SequenceLabeler: React.FC<{
     }
 
     /** ===== Coalesced seek for timeline (60Hz) ===== */
-    const seekIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const seekTargetFrameRef = useRef<number | null>(null);
-
-    const scheduleSeek = useCallback((f: number) => {
-      const frame = Math.round(f);
-      seekTargetFrameRef.current = frame;
-
-      // If the interval isn't running, start it.
-      if (!seekIntervalRef.current) {
-        // Also, for responsiveness, apply the very first seek immediately.
-        scrubActiveRef.current = true;
-        setFrame(frame);
-        // If using video worker, immediately request the target frame to minimize lag
-        if (videoWorkerRef.current) {
-          try { videoWorkerRef.current.postMessage({ type: 'seekFrame', index: frame }); } catch { }
-        }
-
-        seekIntervalRef.current = setInterval(() => {
-          const target = seekTargetFrameRef.current;
-          if (target !== null) {
-            // A new target has been set since the last interval tick.
-            // Apply it and clear it.
-            setFrame(target);
-            seekTargetFrameRef.current = null;
-          } else {
-            // No new target was set in the last interval.
-            // The user has likely stopped dragging. Stop the interval.
-            // Send a final precise seek to ensure exact frame upgrade
-            try {
-              if (videoWorkerRef.current) {
-                videoWorkerRef.current.postMessage({ type: 'seekFrame', index: currentFrameRef.current, exact: true });
-              }
-            } catch { }
-            if (seekIntervalRef.current) clearInterval(seekIntervalRef.current);
-            seekIntervalRef.current = null;
-            scrubActiveRef.current = false; // ★ 프리뷰 비활성
-          }
-        }, 1000 / 60); // ~60Hz
-      }
-    }, []);
+    const { scheduleSeek } = useTimelineSeek({ setFrame, videoWorkerRef, currentFrameRef, scrubActiveRef });
 
     const totalFrames = (meta?.count ?? (localFiles ? localFiles.length : files.length));
 
-    // Manual save to localStorage to guarantee persistence on demand
-    const saveNow = useCallback(() => {
-      try {
-        localStorage.setItem(
-          `${storagePrefix}::autosave_v2`,
-          JSON.stringify({
-            schema: DEFAULT_SCHEMA,
-            version: DEFAULT_VERSION,
-            meta,
-            labelSet,
-            tracks,
-            frame,
-            interpolate,
-            showGhosts,
-          }),
-        );
-        // Optional lightweight feedback
-        // eslint-disable-next-line no-alert
-        alert("Saved");
-      } catch (err) {
-        console.error(err);
-        // eslint-disable-next-line no-alert
-        alert("Save failed");
-      }
-    }, [storagePrefix, meta, labelSet, tracks, frame, interpolate, showGhosts]);
+    // Export / Save: moved to hook
+    const { saveNow, exportJSON, exportYOLO } = useExports({
+      storagePrefix,
+      meta,
+      files,
+      localFiles,
+      labelSet,
+      tracks,
+      frame,
+      interpolate,
+    });
 
 
 
@@ -1833,14 +1639,22 @@ const SequenceLabeler: React.FC<{
           e.preventDefault();
           return;
         }
+        // Avoid handling shortcuts when typing or adjusting form controls
         if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName ?? ""))
           return;
+
+        // Space on a focused button also triggers a click on keyup in browsers,
+        // which would double-toggle play. If a button is focused, let it handle Space.
+        const activeEl = document.activeElement as HTMLElement | null;
+        if (activeEl && (activeEl.tagName === 'BUTTON' || activeEl.getAttribute('role') === 'button')) {
+          if (e.code === 'Space' || e.key === ' ') return;
+        }
 
         const keyStr = normalizeKeyString(eventToKeyString(e) ?? "");
         const match = (action: string) =>
           keymap[action] && normalizeKeyString(keymap[action]) === keyStr;
 
-        const total = localFiles ? localFiles.length : files.length;
+        const total = meta?.count ?? (localFiles ? localFiles.length : files.length);
 
         if (match("frame_prev")) {
           setFrame((f) => clamp(f - 1, 0, total - 1));
@@ -1887,6 +1701,7 @@ const SequenceLabeler: React.FC<{
       keymap,
       files.length,
       localFiles,
+      meta?.count,
       labelSet.classes,
       recordingAction,
       selectedIds,
@@ -2044,11 +1859,7 @@ const SequenceLabeler: React.FC<{
             onPasteTracks={pasteTracks}
             canPaste={!!clipboardRef.current?.length}
             onTrack={(t) => startTracking(t)}
-            canTrackAtFrame={(t) => {
-              if (!meta) return false;
-              const r = rectAtFrame(t, frame, interpolate);
-              return !!r && !t.hidden && !tracking;
-            }}
+            canTrackAtFrame={canTrackAtFrame}
           />
         </div>
 
