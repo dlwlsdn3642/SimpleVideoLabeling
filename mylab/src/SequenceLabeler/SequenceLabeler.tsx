@@ -103,7 +103,11 @@ const SequenceLabeler: React.FC<{
   const offscreenTransferredRef = useRef(false);
   const [workerActive, setWorkerActive] = useState(false);
   const [webglEnabled, setWebglEnabled] = useState(false);
-  const [webglInfo, setWebglInfo] = useState("");
+  const [webglInfo, setWebglInfo] = useState<{
+    renderer?: string;
+    vendor?: string;
+    powerPreference?: string | null;
+  }>({});
   // Disable OffscreenCanvas path to avoid transfer race when using 2D drawing + video worker
   const canUseOffscreen = false;
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
@@ -1038,11 +1042,11 @@ const SequenceLabeler: React.FC<{
       try {
         webglRef.current = new WebGLRenderer(c);
         setWebglEnabled(true);
-        setWebglInfo(webglRef.current.info.renderer || "");
+        setWebglInfo({ ...webglRef.current.info });
       } catch {
         webglRef.current = null;
         setWebglEnabled(false);
-        setWebglInfo("");
+        setWebglInfo({});
       }
     } else {
       setWebglEnabled(true);
@@ -2034,9 +2038,15 @@ const SequenceLabeler: React.FC<{
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span style={{ fontSize: 12, opacity: 0.75 }}>
               {webglEnabled
-                ? /swiftshader|software|llvmpipe/i.test(webglInfo)
-                  ? "WebGL (software)"
-                  : "WebGL (GPU)"
+                ? /swiftshader|software|llvmpipe/i.test(
+                    `${webglInfo.renderer} ${webglInfo.vendor}`,
+                  )
+                  ? `WebGL (software) - ${webglInfo.renderer ?? ""}`
+                  : `WebGL (GPU${
+                      webglInfo.powerPreference
+                        ? ` ${webglInfo.powerPreference}`
+                        : ""
+                    }) - ${webglInfo.renderer ?? ""}`
                 : "Canvas2D"}
             </span>
             {leftTopExtra}

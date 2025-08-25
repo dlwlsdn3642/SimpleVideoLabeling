@@ -7,16 +7,28 @@ export default class WebGLRenderer {
   private baseTex: WebGLTexture;
   private overlayTex: WebGLTexture;
   private canvas: HTMLCanvasElement;
-  public readonly info: { renderer?: string; vendor?: string } = {};
+  private baseW = 0;
+  private baseH = 0;
+  private overlayW = 0;
+  private overlayH = 0;
+  private readonly emptyPx = new Uint8Array([0, 0, 0, 0]);
+  public readonly info: {
+    renderer?: string;
+    vendor?: string;
+    powerPreference?: string | null;
+  } = {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const gl2 = canvas.getContext("webgl2", {
-      premultipliedAlpha: true,
-      alpha: true,
-    });
-    const gl = (gl2 ||
-      canvas.getContext("webgl", { premultipliedAlpha: true, alpha: true })) as
+    const attrs = {
+      alpha: false,
+      premultipliedAlpha: false,
+      antialias: false,
+      powerPreference: "high-performance" as const,
+      desynchronized: true,
+    };
+    const gl2 = canvas.getContext("webgl2", attrs);
+    const gl = (gl2 || canvas.getContext("webgl", attrs)) as
       | WebGL2RenderingContext
       | WebGLRenderingContext
       | null;
@@ -28,6 +40,8 @@ export default class WebGLRenderer {
       this.info.vendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
       this.info.renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
     }
+    this.info.powerPreference =
+      (gl.getContextAttributes() as any)?.powerPreference ?? null;
 
     const vsSrc = `#version 300 es
       in vec2 a_pos; in vec2 a_uv; out vec2 v_uv; void main(){ v_uv=vec2(a_uv.x, 1.0 - a_uv.y); gl_Position=vec4(a_pos,0.0,1.0);} `;
@@ -128,8 +142,24 @@ export default class WebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    // @ts-ignore - overloads accept ImageBitmap/Canvas
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, base);
+    const bw = (base as any).width || 1;
+    const bh = (base as any).height || 1;
+    if (bw !== this.baseW || bh !== this.baseH) {
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        bw,
+        bh,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        null,
+      );
+      this.baseW = bw;
+      this.baseH = bh;
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, base);
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.overlayTex);
@@ -138,28 +168,58 @@ export default class WebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     if (overlay) {
-      // @ts-ignore
-      gl.texImage2D(
+      const ow = overlay.width || 1;
+      const oh = overlay.height || 1;
+      if (ow !== this.overlayW || oh !== this.overlayH) {
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          ow,
+          oh,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          null,
+        );
+        this.overlayW = ow;
+        this.overlayH = oh;
+      }
+      gl.texSubImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.RGBA,
+        0,
+        0,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
         overlay,
       );
     } else {
-      // upload 1x1 transparent
-      const px = new Uint8Array([0, 0, 0, 0]);
-      gl.texImage2D(
+      if (this.overlayW !== 1 || this.overlayH !== 1) {
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          1,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          null,
+        );
+        this.overlayW = 1;
+        this.overlayH = 1;
+      }
+      gl.texSubImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.RGBA,
-        1,
-        1,
         0,
+        0,
+        1,
+        1,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
-        px,
+        this.emptyPx,
       );
     }
 
