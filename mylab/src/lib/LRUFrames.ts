@@ -10,16 +10,23 @@ export default class LRUFrames {
   has(k: number) { return this.map.has(k); }
   set(k: number, v: ImageBitmap) {
     if (this.map.has(k)) {
-      // Don't close if we're just replacing the same key
+      const old = this.map.get(k);
+      if (old && old !== v) old.close?.();
       this.map.delete(k);
     }
     this.map.set(k, v);
     while (this.map.size > this.max) {
       const fk = this.map.keys().next().value as number;
+      const fv = this.map.get(fk);
+      if (fv) fv.close?.();
       this.map.delete(fk);
     }
   }
   // On clear, we can safely release all bitmaps since no one should reference them anymore
   clear() { for (const [, v] of this.map) v.close?.(); this.map.clear(); }
-  delete(k: number) { this.map.delete(k); }
+  delete(k: number) {
+    const v = this.map.get(k);
+    if (v) v.close?.();
+    this.map.delete(k);
+  }
 }

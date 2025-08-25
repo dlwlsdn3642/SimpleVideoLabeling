@@ -121,11 +121,10 @@ const SequenceLabeler: React.FC<{
 
   const requestVideoFrame = useCallback((idx: number, exact = false) => {
     pendingVideoSeekRef.current = idx;
-    if (videoSeekScheduledRef.current) return;
+    if (playingRef.current || videoSeekScheduledRef.current) return;
     videoSeekScheduledRef.current = true;
     requestAnimationFrame(() => {
       videoSeekScheduledRef.current = false;
-      // If playback started before this tick, skip sending a seek that would cancel play
       if (playingRef.current) return;
       const i = pendingVideoSeekRef.current;
       if (videoWorkerRef.current && i !== null) {
