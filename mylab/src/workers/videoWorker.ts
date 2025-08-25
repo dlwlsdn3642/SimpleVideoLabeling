@@ -32,7 +32,7 @@ let jobId = 0;
 let currentJob = 0;
 
 // High-speed scrubbing state
-const SCRUB_WINDOW_MS = 120;
+const SCRUB_WINDOW_MS = 250;
 let lastSeekWall = 0;
 // Preview scale hint: downscale during fast scrubs for smoother UI, upgrade when stable
 let previewScale = 1;

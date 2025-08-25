@@ -123,16 +123,19 @@ const SequenceLabeler: React.FC<{
     if (videoSeekScheduledRef.current) return;
     videoSeekScheduledRef.current = true;
     requestAnimationFrame(() => {
-      if (videoWorkerRef.current && pendingVideoSeekRef.current !== null) {
+      videoSeekScheduledRef.current = false;
+      // If playback started before this tick, skip sending a seek that would cancel play
+      if (playingRef.current) return;
+      const i = pendingVideoSeekRef.current;
+      if (videoWorkerRef.current && i !== null) {
         try {
           videoWorkerRef.current.postMessage({
             type: "seekFrame",
-            index: pendingVideoSeekRef.current,
+            index: i,
             exact,
           });
         } catch {}
       }
-      videoSeekScheduledRef.current = false;
     });
   }, []);
 
@@ -140,6 +143,11 @@ const SequenceLabeler: React.FC<{
   const playingRef = useRef(false);
   useEffect(() => {
     playingRef.current = playing;
+    if (playing) {
+      // Cancel any pending seek that might still be queued
+      pendingVideoSeekRef.current = null;
+      videoSeekScheduledRef.current = false;
+    }
   }, [playing]);
   const clientRef = useRef<TranstClient | null>(null);
   const sessionIdRef = useRef<string | null>(null);
