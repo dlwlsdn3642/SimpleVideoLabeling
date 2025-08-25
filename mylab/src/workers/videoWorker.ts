@@ -41,6 +41,14 @@ let inFlightBitmaps = 0;
 const MAX_INFLIGHT_BITMAPS = 2;
 let lastPostedPresentIdx = -1;
 let lastPostedIsPreview = false;
+let playing = false;
+let playJobId = 0;
+let playStartWall = 0;
+let playStartPresentIdx = 0;
+function isKeyRequiredError(e: any): boolean {
+  const msg = String(e?.message || e || "").toLowerCase();
+  return msg.includes('key frame is required');
+}
 
 function tsUs(val: number) {
   return Math.round((1e6 * val) / (timescale || 1));
@@ -81,6 +89,18 @@ function onFrame(frame: VideoFrame) {
     return;
   }
   const pIdx = idxFromTsUs(frame.timestamp);
+  // Drop-policy during play: if decoder output is far behind the expected timeline frame, drop it
+  if (playing && playStartWall > 0) {
+    // Estimate expected timeline index from play start
+    // Note: period is recomputed in play() and we pace feeding, but decoder may still burst outputs.
+    // We derive expected using lastPostedPresentIdx as a proxy timeline head when available.
+    const expectedHead = Math.max(playStartPresentIdx, lastPostedPresentIdx);
+    const expectedIdx = expectedHead; // conservative: already paced feed uses period, so use head
+    if (pIdx < expectedIdx - 1) {
+      frame.close();
+      return;
+    }
+  }
   // Drop duplicates only if same index and same preview/full-res state
   if (pIdx === lastPostedPresentIdx) {
     const isPrev = previewScale < 1;
@@ -262,6 +282,7 @@ self.onmessage = async (ev: MessageEvent) => {
   }
 
   if (m.type === "seekFrame") {
+    playing = false; // any seek cancels play mode
     if (!decoder || samples.length === 0 || (decoder.state !== 'configured' && decoder.state !== 'closed')) return;
 
     const now = Date.now();
@@ -333,15 +354,143 @@ self.onmessage = async (ev: MessageEvent) => {
         // Avoid overfilling decode queue
         if (decoder.decodeQueueSize > 6) {
           await new Promise(r => setTimeout(r, 0));
+          if (job !== jobId) return;
         }
         decoder.decode(chunk);
       } catch (e: any) {
-        (self as any).postMessage({ type: "fatal", error: `decode failed: ${e?.message || e}` });
-        return;
+        // Recover from races where decoder was reset between chunks
+        if (isKeyRequiredError(e)) {
+          try {
+            decoder.reset();
+            if (lastDecoderConfig) decoder.configure(lastDecoderConfig);
+            // decode only the keyframe to re-sync
+            const k = startIdx;
+            const ks = samples[k];
+            const koff = ks.off - base;
+            const kview = u8.subarray(koff, koff + ks.size);
+            const kchunk = new EncodedVideoChunk({ type: 'key', timestamp: tsUs(ks.pts), data: kview });
+            decoder.decode(kchunk);
+          } catch {}
+          return;
+        } else {
+          (self as any).postMessage({ type: "fatal", error: `decode failed: ${e?.message || e}` });
+          return;
+        }
       }
     }
     if (job === jobId) {
         await decoder.flush().catch(() => {});
     }
+  }
+
+  if (m.type === "play") {
+    if (!decoder || samples.length === 0 || (decoder.state !== 'configured' && decoder.state !== 'closed')) return;
+    playing = true;
+    cancelAndBumpJob();
+    currentJob = jobId;
+    playJobId++;
+    const myPlay = playJobId;
+    const startF = Math.max(0, Math.min(samples.length - 1, m.index | 0));
+    const fps = Math.max(1, Math.min(240, m.fps | 0 || 30));
+    const period = 1000 / fps;
+    let nextDeadline = performance.now();
+    // If scale is provided (canvas-scale), downscale frames accordingly to reduce CPU
+    const s = Number.isFinite(m.scale) ? Math.max(0.1, Math.min(1, m.scale)) : 1;
+    previewScale = s;
+    const targetDecodeIdx = presentOrderIdxs[startF];
+    const startIdx = findPrevKey(targetDecodeIdx);
+    try {
+      // Reset and configure decoder fresh for a clean GOP
+      if (decoder.state !== 'configured') {
+        if (lastDecoderConfig) decoder.configure(lastDecoderConfig);
+      } else {
+        decoder.reset();
+        if (lastDecoderConfig) decoder.configure(lastDecoderConfig);
+      }
+    } catch {}
+
+    // Prime from keyframe up to the start frame
+    try {
+      const startByte = samples[startIdx].off;
+      const endByte = samples[targetDecodeIdx].off + samples[targetDecodeIdx].size - 1;
+      const ab = await requestSpan(startByte, endByte);
+      if (!playing || myPlay !== playJobId) return;
+      const base = startByte;
+      const u8 = new Uint8Array(ab);
+      for (let i = startIdx; i <= targetDecodeIdx; i++) {
+        if (!playing || myPlay !== playJobId) return;
+        const s = samples[i];
+        const off = s.off - base;
+        const view = u8.subarray(off, off + s.size);
+        const chunk = new EncodedVideoChunk({ type: s.key ? 'key' : 'delta', timestamp: tsUs(s.pts), data: view });
+        try { decoder.decode(chunk); } catch (e: any) {
+          if (isKeyRequiredError(e)) {
+            try {
+              decoder.reset();
+              if (lastDecoderConfig) decoder.configure(lastDecoderConfig);
+              const k = startIdx;
+              const ks = samples[k];
+              const koff = ks.off - base;
+              const kview = u8.subarray(koff, koff + ks.size);
+              const kchunk = new EncodedVideoChunk({ type: 'key', timestamp: tsUs(ks.pts), data: kview });
+              decoder.decode(kchunk);
+            } catch {}
+            return;
+          }
+        }
+      }
+      await decoder.flush().catch(() => {});
+    } catch {}
+
+    // Mark play start for drop policy timeline
+    playStartWall = performance.now();
+    playStartPresentIdx = startF;
+
+    // Stream forward frame-by-frame
+    (async () => {
+      let i = targetDecodeIdx + 1;
+      while (playing && myPlay === playJobId && i < samples.length) {
+        try {
+          const s = samples[i];
+          const ab = await requestSpan(s.off, s.off + s.size - 1);
+          if (!playing || myPlay !== playJobId) return;
+          const view = new Uint8Array(ab);
+          const chunk = new EncodedVideoChunk({ type: s.key ? 'key' : 'delta', timestamp: tsUs(s.pts), data: view });
+          // Backpressure: if queue is large, yield to decoder
+          if (decoder.decodeQueueSize > 3) await new Promise(r => setTimeout(r, 0));
+          if (!playing || myPlay !== playJobId) return;
+          decoder.decode(chunk);
+        } catch (e: any) {
+          if (isKeyRequiredError(e)) {
+            // Find previous key, reset, and continue from there
+            const k = findPrevKey(i);
+            try {
+              decoder.reset();
+              if (lastDecoderConfig) decoder.configure(lastDecoderConfig);
+              const ab2 = await requestSpan(samples[k].off, samples[k].off + samples[k].size - 1);
+              if (!playing || myPlay !== playJobId) return;
+              const keyChunk = new EncodedVideoChunk({ type: 'key', timestamp: tsUs(samples[k].pts), data: new Uint8Array(ab2) });
+              decoder.decode(keyChunk);
+              i = k + 1; // resume after key
+              continue;
+            } catch {}
+          }
+        }
+        // Pace feeding chunks to roughly match target FPS
+        const now = performance.now();
+        if (now < nextDeadline) {
+          await new Promise(r => setTimeout(r, Math.max(0, nextDeadline - now)));
+        }
+        nextDeadline += period;
+        i++;
+      }
+    })();
+    return;
+  }
+
+  if (m.type === "pause") {
+    playing = false;
+    cancelAndBumpJob();
+    return;
   }
 };
