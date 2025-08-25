@@ -7,6 +7,7 @@ export default class WebGLRenderer {
   private baseTex: WebGLTexture;
   private overlayTex: WebGLTexture;
   private canvas: HTMLCanvasElement;
+  public readonly info: { renderer?: string; vendor?: string } = {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -21,6 +22,12 @@ export default class WebGLRenderer {
       | null;
     if (!gl) throw new Error("WebGL not supported");
     this.gl = gl;
+
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    if (dbg) {
+      this.info.vendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+      this.info.renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+    }
 
     const vsSrc = `#version 300 es
       in vec2 a_pos; in vec2 a_uv; out vec2 v_uv; void main(){ v_uv=vec2(a_uv.x, 1.0 - a_uv.y); gl_Position=vec4(a_pos,0.0,1.0);} `;

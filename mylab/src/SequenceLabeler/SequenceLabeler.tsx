@@ -103,6 +103,7 @@ const SequenceLabeler: React.FC<{
   const offscreenTransferredRef = useRef(false);
   const [workerActive, setWorkerActive] = useState(false);
   const [webglEnabled, setWebglEnabled] = useState(false);
+  const [webglInfo, setWebglInfo] = useState("");
   // Disable OffscreenCanvas path to avoid transfer race when using 2D drawing + video worker
   const canUseOffscreen = false;
   const viewportWrapRef = useRef<HTMLDivElement | null>(null);
@@ -1038,9 +1039,11 @@ const SequenceLabeler: React.FC<{
       try {
         webglRef.current = new WebGLRenderer(c);
         setWebglEnabled(true);
+        setWebglInfo(webglRef.current.info.renderer || "");
       } catch {
         webglRef.current = null;
         setWebglEnabled(false);
+        setWebglInfo("");
       }
     } else {
       setWebglEnabled(true);
@@ -2031,7 +2034,11 @@ const SequenceLabeler: React.FC<{
         leftTopExtra={
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <span style={{ fontSize: 12, opacity: 0.75 }}>
-              {webglEnabled ? "WebGL" : "Canvas2D"}
+              {webglEnabled
+                ? /swiftshader|software|llvmpipe/i.test(webglInfo)
+                  ? "WebGL (software)"
+                  : "WebGL (GPU)"
+                : "Canvas2D"}
             </span>
             {leftTopExtra}
           </div>
